@@ -1,22 +1,14 @@
 """CLI module."""
 
 import asyncio
-import sys
 from pathlib import Path
 
-import pydantic
-import pydantic.fields
 import typer
+from rich.console import Console
 
-# HOTFIX: Bypass LangChain's broken pydantic.v1 imports with Pydantic 2.10+
-sys.modules["pydantic.v1"] = pydantic
-sys.modules["pydantic.v1.fields"] = pydantic.fields
-
-from rich.console import Console  # noqa: E402
-
-from src.config import settings  # noqa: E402
-from src.services.project import ProjectManager  # noqa: E402
-from src.services.workflow import WorkflowService  # noqa: E402
+from src.config import settings
+from src.services.project import ProjectManager
+from src.services.workflow import WorkflowService
 
 app = typer.Typer()
 console = Console()
