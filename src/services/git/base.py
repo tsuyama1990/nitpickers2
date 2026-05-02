@@ -3,6 +3,7 @@ from pathlib import Path
 from src.config import settings
 from src.process_runner import ProcessRunner
 from src.utils import logger
+from src.utils_sanitization import redact_secrets
 
 
 class BaseGitManager:
@@ -43,7 +44,7 @@ class BaseGitManager:
                 return str(stdout).strip()
 
             if "index.lock" in error_msg and attempt < 4:
-                logger.warning(f"Index locked, retrying {args}...")
+                logger.warning(f"Index locked, retrying {redact_secrets(' '.join(args))}...")
                 await asyncio.sleep(random.SystemRandom().uniform(0.5, 2.0))
                 continue
 
@@ -58,7 +59,7 @@ class BaseGitManager:
                 return ""
 
             if code != 0 and check:
-                msg = f"Git command failed: {' '.join(cmd)} - Stderr: {error_msg}"
+                msg = f"Git command failed: {redact_secrets(' '.join(cmd))} - Stderr: {error_msg}"
                 raise RuntimeError(msg)
             return str(stdout).strip()
         return ""

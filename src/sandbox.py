@@ -7,6 +7,7 @@ from e2b_code_interpreter import Sandbox
 from .config import settings
 from .services.sandbox.sync import SandboxSyncManager
 from .utils import logger
+from .utils_sanitization import redact_secrets
 
 
 class SandboxRunner:
@@ -152,7 +153,8 @@ class SandboxRunner:
         """
         self._validate_command(cmd)
 
-        logger.info(f"Sandbox executing explicit command structure: {cmd}")
+        redacted_cmd = redact_secrets(" ".join(cmd))
+        logger.info(f"Sandbox executing explicit command structure: {redacted_cmd}")
 
         max_retries = settings.sandbox.max_retries
         stdout = ""
@@ -166,7 +168,7 @@ class SandboxRunner:
                 sandbox = await self.get_sandbox()
                 await self._sync_to_sandbox(sandbox)
 
-                logger.info(f"[Sandbox] Running (Attempt {attempt + 1}): {cmd}")
+                logger.info(f"[Sandbox] Running (Attempt {attempt + 1}): {redacted_cmd}")
 
                 # Build sandbox environment: start from caller-supplied env vars,
                 # then explicitly clear Docker-host-specific variables that must not

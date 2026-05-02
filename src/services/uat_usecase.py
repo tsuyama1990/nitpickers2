@@ -10,6 +10,7 @@ from src.sandbox import SandboxRunner
 from src.services.git_ops import GitManager
 from src.state import CycleState
 from src.utils import logger
+from src.utils_sanitization import redact_secrets
 
 
 class UatUseCase:
@@ -145,7 +146,7 @@ class UatUseCase:
                         raise ValueError(msg)
                 await runner.run_command(reset_cmd, check=True)
 
-        logger.debug(f"Executing: {' '.join(cmd)}")
+        logger.debug(f"Executing: {redact_secrets(' '.join(cmd))}")
         stdout, stderr, exit_code = await runner.run_command(cmd, check=False)
 
         if exit_code != 0:

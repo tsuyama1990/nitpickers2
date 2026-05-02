@@ -3,6 +3,7 @@ import subprocess
 from pathlib import Path
 
 from .utils import logger
+from .utils_sanitization import redact_secrets
 
 
 class ProcessRunner:
@@ -23,7 +24,8 @@ class ProcessRunner:
         Returns: (stdout, stderr, exit_code, timeout_occurred)
         """
         cmd_str = " ".join(cmd)
-        logger.debug(f"Running command: {cmd_str}")
+        redacted_cmd_str = redact_secrets(cmd_str)
+        logger.debug(f"Running command: {redacted_cmd_str}")
 
         try:
             process = await asyncio.create_subprocess_exec(
@@ -49,14 +51,14 @@ class ProcessRunner:
 
             if returncode != 0:
                 if check:
-                    logger.error(f"Command failed [{returncode}]: {cmd_str}")
+                    logger.error(f"Command failed [{returncode}]: {redacted_cmd_str}")
                     if stderr_str:
                         logger.error(f"Stderr: {stderr_str}")
 
                     raise subprocess.CalledProcessError(  # noqa: TRY301
                         returncode, cmd, output=stdout_str, stderr=stderr_str
                     )
-                logger.debug(f"Command failed (expected) [{returncode}]: {cmd_str}")
+                logger.debug(f"Command failed (expected) [{returncode}]: {redacted_cmd_str}")
         except Exception as e:
             if check and isinstance(e, subprocess.CalledProcessError):
                 raise

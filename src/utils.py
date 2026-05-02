@@ -11,6 +11,8 @@ from langchain_core.callbacks import BaseCallbackHandler
 from rich.console import Console
 from rich.logging import RichHandler
 
+from .utils_sanitization import redact_secrets
+
 console = Console()
 
 current_cycle_id: contextvars.ContextVar[str] = contextvars.ContextVar("cycle_id", default="CORE")
@@ -113,7 +115,7 @@ def run_command(
     Raises CalledProcessError on error.
     """
     cmd_str = " ".join(command)
-    logger.info(f"Running: {cmd_str}")
+    logger.info(f"Running: {redact_secrets(cmd_str)}")
 
     try:
         process = subprocess.Popen(
