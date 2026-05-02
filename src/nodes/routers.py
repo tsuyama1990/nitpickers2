@@ -7,6 +7,8 @@ from src.state import CycleState
 
 def check_coder_outcome(state: CycleState) -> str:
     status = getattr(state, "status", None)
+    from src.utils import logger
+    logger.info(f"[ROUTER] check_coder_outcome: status={status}")
 
     if status in {FlowStatus.FAILED, FlowStatus.ARCHITECT_FAILED}:
         return str(FlowStatus.FAILED.value)
@@ -18,12 +20,12 @@ def check_coder_outcome(state: CycleState) -> str:
     if status == FlowStatus.CODER_RETRY:
         return "impl_coder_node"
 
-    if status == FlowStatus.READY_FOR_SELF_CRITIC:
-        return "self_critic"
-
+    # For any ready status (SELF_CRITIC, AUDIT, FINAL_CRITIC), always go to sandbox first
     if status in {
+        FlowStatus.READY_FOR_SELF_CRITIC,
         FlowStatus.READY_FOR_AUDIT,
         FlowStatus.READY_FOR_FINAL_CRITIC,
+        FlowStatus.POST_AUDIT_REFACTOR,
     }:
         return settings.node_sandbox_evaluate
 
@@ -32,6 +34,8 @@ def check_coder_outcome(state: CycleState) -> str:
 
 def route_sandbox_evaluate(state: CycleState) -> str:  # noqa: PLR0911, C901
     status = getattr(state, "status", None)
+    from src.utils import logger
+    logger.info(f"[ROUTER] route_sandbox_evaluate: status={status}")
 
     if getattr(state.test, "tdd_phase", None) == "red":
         if status == FlowStatus.FAILED:
@@ -50,16 +54,13 @@ def route_sandbox_evaluate(state: CycleState) -> str:  # noqa: PLR0911, C901
     if status == FlowStatus.TDD_FAILED:
         return "impl_coder_node"
 
-    if status == FlowStatus.READY_FOR_SELF_CRITIC:
+    if status in {FlowStatus.READY_FOR_SELF_CRITIC, FlowStatus.READY_FOR_FINAL_CRITIC}:
         return "self_critic_node"
 
     if status == FlowStatus.READY_FOR_AUDIT:
         if getattr(state.committee, "is_refactoring", False) or getattr(state, "final_fix", False):
             return "final_critic"
         return "auditor"
-
-    if status == FlowStatus.READY_FOR_FINAL_CRITIC:
-        return "final_critic"
 
     if status == FlowStatus.WAITING_FOR_JULES:
         return "impl_coder_node"

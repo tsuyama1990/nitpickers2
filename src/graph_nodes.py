@@ -67,7 +67,7 @@ class CycleNodes(IGraphNodes):
         self._committee = CommitteeNodes()
         self._uat = UatNodes(self.git)
         self._ux_auditor = UxAuditorNodes()
-        self._sandbox_evaluator = SandboxEvaluatorNodes()
+        self._sandbox_evaluator = SandboxEvaluatorNodes(git_manager=self.git)
         self._qa = QaNodes(self.jules, self.git, self.llm_reviewer)
         self._coder_critic = CoderCriticNodes(self.jules)
 

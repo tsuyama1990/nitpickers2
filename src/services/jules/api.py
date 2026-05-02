@@ -58,11 +58,15 @@ class JulesApiClient:
         raise ValueError(msg)
 
     def _get_headers(self) -> dict[str, str]:
-        """Returns headers specifically for making requests without exposing to logs easily."""
-        return {
+        """Returns headers for Jules API, including model version selection."""
+        headers = {
             "x-goog-api-key": self._api_key,
             "Content-Type": settings.jules.content_type,
         }
+        # Add model version header if configured
+        if settings.jules.model:
+            headers["x-goog-agent-version"] = settings.jules.model
+        return headers
 
     def _request(
         self,

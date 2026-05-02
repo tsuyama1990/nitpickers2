@@ -110,6 +110,11 @@ class LLMReviewer:
         # Retry logic (up to 2 retries, total 3 attempts)
         for attempt in range(3):
             try:
+                if attempt > 0:
+                    delay = (2 ** attempt) * 5  # 10s, 20s
+                    logger.info(f"Retrying LLM review in {delay}s...")
+                    await anyio.sleep(delay)
+
                 response = await litellm.acompletion(
                     model=model,
                     messages=[
@@ -204,6 +209,11 @@ class LLMReviewer:
 
         for attempt in range(3):
             try:
+                if attempt > 0:
+                    delay = (2 ** attempt) * 5
+                    logger.info(f"Retrying UAT failure diagnosis in {delay}s...")
+                    await anyio.sleep(delay)
+
                 response = await litellm.acompletion(
                     model=model,
                     messages=[

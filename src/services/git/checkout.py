@@ -13,8 +13,29 @@ class GitCheckoutMixin(BaseGitManager):
         """Robust checkout that handles local changes by auto-committing."""
         await self._auto_commit_if_dirty()
 
+        # Optimization: Skip if already on the target branch
+        if not is_pr:
+            current = await self.get_current_branch()
+            if current == target:
+                logger.debug(f"Already on branch {target}, skipping checkout.")
+                return
+
         try:
             if is_pr:
+                # For PRs, we check if the head branch is already checked out
+                try:
+                    stdout, _, _, _ = await self.runner.run_command(
+                        [self.gh_cmd, "pr", "view", target, "--json", "headRefName", "-q", ".headRefName"],
+                        check=False
+                    )
+                    head_branch = str(stdout).strip()
+                    current = await self.get_current_branch()
+                    if head_branch and current == head_branch:
+                        logger.debug(f"Already on PR branch {head_branch}, skipping checkout.")
+                        return
+                except Exception:
+                    pass
+
                 cmd = [self.gh_cmd, "pr", "checkout", target]
                 if force:
                     cmd.append("--force")
@@ -23,12 +44,19 @@ class GitCheckoutMixin(BaseGitManager):
                 cmd = ["checkout", target]
                 if force:
                     cmd.append("-f")
-                await self._run_git(cmd)
+                try:
+                    await self._run_git(cmd)
+                except Exception as e:
+                    if "already used by worktree" in str(e):
+                        logger.warning(f"Branch {target} is locked by another worktree. Falling back to detached checkout.")
+                        await self._run_git(["checkout", "--detach", target])
+                    else:
+                        raise
 
                 # IMPORTANT: Always try to sync with remote to get any freshly merged PRs
                 with contextlib.suppress(Exception):
                     await self._run_git(["fetch"])
-                    await self._run_git(["pull", "--rebase"])
+                    await self.pull_changes()
 
         except Exception:
             logger.error(f"Failed to checkout '{target}'. Please check git status.")
@@ -88,7 +116,7 @@ class GitCheckoutMixin(BaseGitManager):
     async def commit_changes(self, message: str) -> bool:
         """Stages and commits all changes."""
         await self.add_all()
-        status = await self._run_git(["status", "--porcelain"])
+        status = await self._run_git(["status", "--porcelain", "--untracked-files=no"])
         if not status:
             return False
         await self._run_git(["commit", "-m", message])
@@ -96,11 +124,11 @@ class GitCheckoutMixin(BaseGitManager):
 
     async def pull_changes(self) -> None:
         """Pulls changes from the remote repository using rebase."""
+        await self.ensure_clean_state()
         logger.info("Pulling latest changes (rebase)...")
         try:
             # Check for current branch name
-            stdout, _, _, _ = await self.runner.run_command(["git", "branch", "--show-current"])
-            branch = str(stdout).strip()
+            branch = await self.get_current_branch()
 
             # Ensure tracking is set (fixes "no tracking information" warning)
             if branch:
@@ -117,7 +145,22 @@ class GitCheckoutMixin(BaseGitManager):
                 logger.info("Rebase aborted successfully.")
             except Exception as abort_err:
                 logger.warning(f"Could not abort rebase: {abort_err}")
-            raise
+            
+            # If we are in an isolated worktree (self.cwd is set), discard conflicting local auto-commits
+            # and reset hard to match the PR state exactly.
+            if self.cwd:
+                logger.warning(f"Fallback: Hard resetting to origin/{branch} in worktree to resolve conflict.")
+                await self._run_git(["fetch", "origin", branch])
+                await self._run_git(["reset", "--hard", f"origin/{branch}"])
+            else:
+                raise
+
+    async def get_current_branch(self) -> str:
+        """Returns the name of the currently checked out branch."""
+        stdout, _, _, _ = await self.runner.run_command(
+            [self.git_cmd, "branch", "--show-current"], check=False
+        )
+        return str(stdout).strip()
 
     async def push_branch(self, branch: str, force: bool = False) -> None:
         """Pushes the specified branch to origin, skipping if already pushed in this batch."""

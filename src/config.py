@@ -284,6 +284,10 @@ class JulesConfig(BaseModel):
         default_factory=lambda: float(os.getenv("JULES_REQUEST_TIMEOUT", "30.0"))
     )
     page_size: int = Field(default_factory=lambda: int(os.getenv("JULES_PAGE_SIZE", "100")))
+    model: str = Field(
+        default_factory=lambda: os.getenv("JULES_MODEL", "gemini-3.1-pro"),
+        description="The Gemini model to use for Jules sessions (e.g., gemini-3.1-pro, gemini-3-flash).",
+    )
 
     # LangGraph session monitoring
     monitor_batch_size: int = Field(
@@ -583,6 +587,13 @@ class Settings(BaseSettings):
     ast_analyzer: ASTAnalyzerConfig = Field(default_factory=ASTAnalyzerConfig)
     tracing: LangSmithConfig = Field(default_factory=LangSmithConfig)
     dispatcher: DispatcherConfig = Field(default_factory=DispatcherConfig)
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_nested_delimiter="__",
+        extra="ignore",
+        env_prefix="",
+        populate_by_name=True,
+    )
 
     @property
     def tracing_service(self) -> "Any":

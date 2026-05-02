@@ -338,9 +338,20 @@ class JulesSessionNodes:
             )
             console.print(f"[dim]Context size: {len(enhanced_context)} chars[/dim]")
 
-            # Get Manager Agent response
-            mgr_response = await self.client.manager_agent.run(enhanced_context)
-            reply_text = mgr_response.output
+            # Get Manager Agent response with retries
+            max_retries = 3
+            reply_text = ""
+            for attempt in range(max_retries):
+                try:
+                    mgr_response = await self.client.manager_agent.run(enhanced_context)
+                    reply_text = mgr_response.output
+                    break
+                except Exception as e:
+                    if attempt == max_retries - 1:
+                        raise
+                    logger.warning(f"Manager Agent attempt {attempt + 1} failed: {e}. Retrying...")
+                    await asyncio.sleep(2 ** attempt)
+
             from src.config import settings
 
             followup = settings.get_prompt_content(
@@ -426,11 +437,18 @@ class JulesSessionNodes:
                         "Stale completion detected, BUT valid IN_PROGRESS->COMPLETED transition observed. Treating as complete."
                     )
                 else:
-                    logger.info(
-                        "Stale completion detected (ignored). Waiting for new Agent activity..."
-                    )
-                    state.status = SessionStatus.MONITORING
-                    return self._compute_diff(_state_in, state)
+                    # If we are not expecting new work (e.g. cold start resume), 
+                    # a stale completion is still a valid state to proceed.
+                    if not state.expect_new_work:
+                        logger.info(
+                            "Stale completion detected during resume/non-interactive check. Proceeding."
+                        )
+                    else:
+                        logger.info(
+                            "Stale completion detected (ignored). Waiting for new Agent activity..."
+                        )
+                        state.status = SessionStatus.MONITORING
+                        return self._compute_diff(_state_in, state)
 
             # Logic removed: Checking for ongoing work indicators via keywords caused infinite loops.
 

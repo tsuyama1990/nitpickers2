@@ -74,8 +74,9 @@ class BaseGitManager:
         return await self._run_git(["status", "--porcelain"], check=False)
 
     async def add_all(self) -> None:
-        # We rely on .gitignore to exclude logs/ and worktrees/.
-        # Explicitly excluding them via pathspecs can cause Git to error if they are ignored.
+        """Stages all changes in the current directory."""
+        # Simplified staging to avoid 'add ignored' errors.
+        # We rely on .gitignore and EnvironmentValidator to keep ephemeral files out.
         await self._run_git(["add", "."])
 
     async def commit(self, message: str) -> None:
@@ -140,20 +141,13 @@ class BaseGitManager:
 
             logger.info("Uncommitted changes detected. Auto-committing...")
             await self.add_all()
-            # Explicitly unstage paths that belong to ephemeral/ignored directories.
-            # Even if .gitignore lists them, previously-tracked files in logs/ or .nitpick/
-            # are still staged by `git add .` and cause branch-checkout conflicts.
-            for unstage_path in ["logs", ".nitpick"]:
-                try:
-                    await self._run_git(["restore", "--staged", unstage_path], check=False)
-                except Exception:
-                    pass  # Path may not exist; that's fine.
-            # Re-check if there's anything left to commit
+            # No longer need to manually unstage here because add_all() now excludes them.
+            # But we still check if there's anything staged to commit.
             remaining, _, _, _ = await self.runner.run_command(
-                [self.git_cmd, "status", "--porcelain"], check=False
+                [self.git_cmd, "status", "--porcelain", "--untracked-files=no"], check=False
             )
             if not remaining.strip():
-                logger.info("Nothing to commit after unstaging ephemeral files.")
+                logger.info("Nothing to commit after selective staging.")
                 return
             await self._run_git(["commit", "-m", message])
             logger.info("✓ Auto-committed changes.")

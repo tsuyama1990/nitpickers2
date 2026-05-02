@@ -221,11 +221,7 @@ class AuditorUseCase:
             console.print(f"[bold red]Error: Could not determine files to review: {e}[/bold red]")
             raise
 
-        model = (
-            settings.reviewer.smart_model
-            if settings.AUDITOR_MODEL_MODE == "smart"
-            else settings.reviewer.fast_model
-        )
+        model = settings.agents.auditor_model
 
         audit_feedback = await self.llm_reviewer.review_code(
             target_files=target_files,
@@ -247,13 +243,6 @@ class AuditorUseCase:
             reason="AI Audit Complete",
             feedback=audit_feedback,
         )
-
-        feature_branch = state.feature_branch
-        if feature_branch:
-            try:
-                await self.git.checkout_branch(feature_branch)
-            except Exception as e:
-                console.print(f"[yellow]Warning: Could not return to feature branch: {e}[/yellow]")
 
         status_enum = FlowStatus.APPROVED if status == "approved" else FlowStatus.REJECTED
 

@@ -23,9 +23,11 @@ class SandboxEvaluatorNodes:
         self,
         executor: E2BExecutorService | None = None,
         process_runner: ProcessRunner | None = None,
+        git_manager: GitManager | None = None,
     ) -> None:
         self.executor = executor or E2BExecutorServiceImpl()
         self.process_runner = process_runner or ProcessRunner()
+        self.git = git_manager or GitManager()
 
     async def sandbox_evaluate_node(self, state: CycleState) -> dict[str, Any]:
         """
@@ -37,13 +39,12 @@ class SandboxEvaluatorNodes:
         try:
             async with workspace_lock:
                 # JIT Synchronization: Ensure local workspace matches the cycle's branch
-                git = GitManager()
                 # Prioritize cycle-specific branch (Jules PR) over base feature branch
                 target_branch = state.branch_name or state.feature_branch
                 if target_branch:
                     console.print(f"[dim]Synchronizing workspace to branch: {target_branch}[/dim]")
-                    await git.checkout_branch(target_branch)
-                    await git.pull_changes()
+                    await self.git.checkout_branch(target_branch)
+                    await self.git.pull_changes()
 
                 timeout_limit = settings.sandbox.timeout
 
@@ -72,7 +73,7 @@ class SandboxEvaluatorNodes:
 
                 for check_name, cmd in commands.items():
                     out, err, code, timeout_occurred = await self.process_runner.run_command(
-                        cmd, check=False, timeout_seconds=timeout_limit
+                        cmd, cwd=self.git.cwd, check=False, timeout_seconds=timeout_limit
                     )
                     results[check_name] = VerificationResult(
                         command=" ".join(cmd),
@@ -122,6 +123,8 @@ class SandboxEvaluatorNodes:
                 FlowStatus.POST_AUDIT_REFACTOR,
                 FlowStatus.READY_FOR_SELF_CRITIC,
                 FlowStatus.READY_FOR_FINAL_CRITIC,
+                FlowStatus.COMPLETED,
+                FlowStatus.FAILED,
             }:
                 new_status = original_status
             else:

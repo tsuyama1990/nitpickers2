@@ -68,7 +68,7 @@ class CoderUseCase:
 
         # --- A. Attempt to identify/wait for an EXISTING session ---
         if (state.status == FlowStatus.WAIT_FOR_JULES_COMPLETION or state.resume_mode) and (
-            cycle_manifest and cycle_manifest.jules_session_id
+            cycle_manifest and cycle_manifest.jules_session_id and cycle_manifest.jules_session_id != "null"
         ):
             jules_session_name = cycle_manifest.jules_session_id
             console.print(
@@ -108,7 +108,7 @@ class CoderUseCase:
                     result = reuse_result
 
         # --- B2. Special Case: Resuming a session that is already COMPLETED ---
-        if not result and cycle_manifest and cycle_manifest.jules_session_id:
+        if not result and cycle_manifest and cycle_manifest.jules_session_id and cycle_manifest.jules_session_id != "null":
             if state.status in {FlowStatus.START, None}:
                 # If we are in START and have a session ID, it means we are resuming.
                 # If the session is already COMPLETED, we should just get the result.
@@ -170,10 +170,16 @@ class CoderUseCase:
             # triggers the dedicated Self-Critic node in the graph.
             # This ensures discrete PR checkpoints for "Initial Coder" and "Self-Critic".
 
+            # Default: initial implementation leads to self-critic
             target_status = FlowStatus.READY_FOR_SELF_CRITIC
+
             if is_post_audit_refactor or getattr(state, "final_fix", False):
-                # If we were already in a refactoring/final-fix loop, we move to audit or completion
-                target_status = FlowStatus.READY_FOR_AUDIT
+                # If we just finished a polish/refactor, we move to FINAL critic review
+                target_status = FlowStatus.READY_FOR_FINAL_CRITIC
+            
+            if state.status == FlowStatus.READY_FOR_FINAL_CRITIC:
+                # If we just finished the final critic phase itself, we are done
+                target_status = FlowStatus.COMPLETED
 
             # Extract final PR and branch info
             pr_val = result.get("pr_url") or (cycle_manifest.pr_url if cycle_manifest else None)
@@ -196,13 +202,17 @@ class CoderUseCase:
             # Update the cycle's feature branch if a new one was created by Jules
             if cycle_manifest:
                 mgr.update_cycle_state(
-                    cycle_id, session_restart_count=0, pr_url=pr_val, branch_name=branch_val
+                    cycle_id, 
+                    session_restart_count=0, 
+                    pr_url=pr_val, 
+                    branch_name=branch_val,
+                    status=target_status # Persist status for resume support
                 )
 
             # --- Explicit PR Checkpoint Notification ---
             if pr_val:
                 if state.status == FlowStatus.POST_AUDIT_REFACTOR:
-                    checkpoint_label = "refactoring"
+                    checkpoint_label = "refactoring/polish"
                 elif state.status == FlowStatus.RETRY_FIX:
                     checkpoint_label = "audit feedback response"
                 elif current_phase == WorkPhase.REFACTORING:
@@ -212,14 +222,7 @@ class CoderUseCase:
 
                 console.print(f"[bold green]PR Point [{checkpoint_label}]:[/bold green] {pr_val}")
 
-            if is_post_audit_refactor or getattr(state, "final_fix", False):
-                return {
-                    "status": FlowStatus.COMPLETED,
-                    "session": session_update,
-                    "branch_name": branch_val,
-                    "pr_url": pr_val,
-                }
-
+            logger.info(f"CoderUseCase execute complete. Returning status: {target_status}")
             return {
                 "status": target_status,
                 "session": session_update,
@@ -320,6 +323,7 @@ class CoderUseCase:
             (state.status in REUSABLE_STATUSES or is_final_fix)
             and cycle_manifest
             and cycle_manifest.jules_session_id
+            and cycle_manifest.jules_session_id != "null"
         ):
             return None
 

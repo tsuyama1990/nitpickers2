@@ -54,11 +54,13 @@ services:
       # Tier B: Tuning Tier (Version-controlled configuration)
       - NITPICK_AUDITOR_MODEL=openrouter/nvidia/nemotron-3-super-120b-a12b:free
       - NITPICK_REVIEWER__SMART_MODEL=openrouter/nvidia/nemotron-3-super-120b-a12b:free
-      - NITPICK_RCA_MODEL=openrouter/nvidia/nemotron-3-super-120b-a12b:free
+      - NITPICK_RCA_MODEL=openrouter/google/gemini-2.0-flash-001
       - NITPICK_NUM_AUDITORS=1
       - NITPICK_REVIEWS_PER_AUDITOR=2
       - NITPICK_MAX_ITERATIONS=4
       - JULES_STALE_SESSION_TIMEOUT_SECONDS=3600
+      - JULES_MODEL=gemini-3-flash
+      #- JULES_MODEL=gemini-3.1-pro
       # Final Resort for Git Identity (if still facing issues)
       # - GIT_AUTHOR_NAME=Nitpick-Agent
       # - GIT_AUTHOR_EMAIL=agent@nitpick.com

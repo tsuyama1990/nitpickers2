@@ -145,19 +145,13 @@ class EnvironmentValidator:
         untrack_dirs = ["logs", ".nitpick"]
         for d in untrack_dirs:
             dir_path = Path.cwd() / d
-            if not dir_path.exists():
-                continue
             try:
-                result = subprocess.run(
-                    ["git", "ls-files", d],
-                    capture_output=True, text=True, cwd=str(Path.cwd())
+                # Force removal from index if tracked
+                subprocess.run(
+                    ["git", "rm", "-r", "--cached", "--ignore-unmatch", d],
+                    capture_output=True,
+                    cwd=str(Path.cwd()),
                 )
-                tracked = result.stdout.strip()
-                if tracked:
-                    subprocess.run(
-                        ["git", "rm", "--cached", "-r", "--ignore-unmatch", d],
-                        capture_output=True, cwd=str(Path.cwd())
-                    )
-                    logger.info(f"Untracked '{d}/' from Git index to prevent checkout conflicts.")
+                logger.info(f"Untracked '{d}' from Git index to prevent checkout conflicts.")
             except Exception as e:
                 logger.warning(f"Failed to untrack '{d}/' from Git index: {e}")
