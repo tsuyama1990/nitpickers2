@@ -62,23 +62,16 @@ class PermissionManager:
             except (PermissionError, OSError):
                 pass
 
-        if uid is not None and gid is not None and uid != 0:
-            try:
-                for path in paths:
-                    if path.exists():
-                        for item_path, _ in _walk(str(path)):
+        try:
+            do_chown = uid is not None and gid is not None and uid != 0
+            for path in paths:
+                if path.exists():
+                    for item_path, is_dir in _walk(str(path)):
+                        if do_chown and uid is not None and gid is not None:
                             try:
                                 os.chown(item_path, uid, gid)
                             except (PermissionError, OSError) as e:
                                 logger.debug(f"Could not fix ownership for {item_path}: {e}")
-                logger.info(f"✓ Fixed file ownership for {target_user}")
-            except Exception as e:
-                logger.debug(f"Could not chown: {e}")
-
-        try:
-            for path in paths:
-                if path.exists():
-                    for item_path, is_dir in _walk(str(path)):
                         try:
                             if is_dir:
                                 os.chmod(item_path, 0o755)  # noqa: S103, PTH101
@@ -86,6 +79,9 @@ class PermissionManager:
                                 os.chmod(item_path, 0o644)  # noqa: PTH101
                         except (PermissionError, OSError) as e:
                             logger.debug(f"Could not relax permissions for {item_path}: {e}")
+
+            if do_chown:
+                logger.info(f"✓ Fixed file ownership for {target_user}")
             logger.debug("✓ Set hardened file permissions (rwxr-xr-x / rw-r--r--)")
         except Exception as e:
-            logger.debug(f"Could not fix permissions via chmod: {e}")
+            logger.debug(f"Could not fix permissions or ownership: {e}")
