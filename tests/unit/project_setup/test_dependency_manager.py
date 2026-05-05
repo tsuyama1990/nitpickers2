@@ -1,6 +1,9 @@
+from unittest.mock import AsyncMock, patch
+
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
+
 from src.services.project_setup.dependency_manager import DependencyManager
+
 
 @pytest.fixture
 def dependency_manager():

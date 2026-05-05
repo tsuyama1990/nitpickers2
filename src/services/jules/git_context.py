@@ -13,7 +13,7 @@ class JulesGitContext:
     def __init__(self, git: GitManager) -> None:
         self.git = git
 
-    async def prepare_git_context(self) -> tuple[str, str, str]:
+    async def prepare_git_context(self, branch: str | None = None) -> tuple[str, str, str]:
         try:
             repo_url = await self.git.get_remote_url()
             if "github.com" in repo_url:

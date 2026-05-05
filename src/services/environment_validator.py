@@ -120,7 +120,8 @@ class EnvironmentValidator:
     def _ensure_gitignore(self) -> None:
         """Ensures that logs and worktrees are ignored by git and untracked from the index."""
         gitignore = Path.cwd() / ".gitignore"
-        required_ignores = ["logs/", ".nitpick/worktrees/"]
+        # Add common culprits that cause checkout conflicts
+        required_ignores = ["logs/", ".nitpick/worktrees/", ".coverage", "__pycache__/"]
         try:
             if gitignore.exists():
                 content = gitignore.read_text(encoding="utf-8")
@@ -142,9 +143,9 @@ class EnvironmentValidator:
         # .gitignore alone does NOT protect already-tracked files — they stay in the index
         # and their modifications cause `git checkout` to fail when switching branches.
         import subprocess
-        untrack_dirs = ["logs", ".nitpick"]
+        # Added .coverage to untrack list to prevent "overwrite by checkout" errors
+        untrack_dirs = ["logs", ".nitpick", ".coverage"]
         for d in untrack_dirs:
-            dir_path = Path.cwd() / d
             try:
                 # Force removal from index if tracked
                 subprocess.run(

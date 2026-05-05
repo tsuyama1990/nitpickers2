@@ -20,15 +20,24 @@ def check_coder_outcome(state: CycleState) -> str:
     if status == FlowStatus.CODER_RETRY:
         return "impl_coder_node"
 
-    # For any ready status (SELF_CRITIC, AUDIT, FINAL_CRITIC), always go to sandbox first
+    if status == FlowStatus.READY_FOR_SELF_CRITIC:
+        if state.self_critic_completed:
+            logger.info(f"[ROUTER] check_coder_outcome -> SKIP self_critic_node (Already completed)")
+            return settings.node_sandbox_evaluate
+
+        logger.info(f"[ROUTER] check_coder_outcome -> self_critic_node (status={status})")
+        return "self_critic_node"
+
+    # For any ready status (AUDIT, FINAL_CRITIC), always go to sandbox first
     if status in {
-        FlowStatus.READY_FOR_SELF_CRITIC,
         FlowStatus.READY_FOR_AUDIT,
         FlowStatus.READY_FOR_FINAL_CRITIC,
         FlowStatus.POST_AUDIT_REFACTOR,
     }:
+        logger.info(f"[ROUTER] check_coder_outcome -> sandbox (status={status})")
         return settings.node_sandbox_evaluate
 
+    logger.info(f"[ROUTER] check_coder_outcome -> default sandbox (status={status})")
     return settings.node_sandbox_evaluate
 
 
@@ -46,25 +55,44 @@ def route_sandbox_evaluate(state: CycleState) -> str:  # noqa: PLR0911, C901
             return "test_coder_node"
 
     if status == FlowStatus.FAILED:
+        logger.info("[ROUTER] route_sandbox_evaluate -> failed (status=FAILED)")
         return "failed"
 
     if status == FlowStatus.COMPLETED:
+        logger.info("[ROUTER] route_sandbox_evaluate -> end (status=COMPLETED)")
         return "end"
 
     if status == FlowStatus.TDD_FAILED:
+        logger.info("[ROUTER] route_sandbox_evaluate -> impl_coder_node (status=TDD_FAILED)")
         return "impl_coder_node"
 
-    if status in {FlowStatus.READY_FOR_SELF_CRITIC, FlowStatus.READY_FOR_FINAL_CRITIC}:
+    if status == FlowStatus.READY_FOR_SELF_CRITIC:
+        if state.self_critic_completed:
+            logger.info("[ROUTER] route_sandbox_evaluate -> auditor (Self-critic already completed)")
+            return "auditor"
+        logger.info("[ROUTER] route_sandbox_evaluate -> self_critic_node (status=READY_FOR_SELF_CRITIC)")
         return "self_critic_node"
+
+    if status == FlowStatus.READY_FOR_FINAL_CRITIC:
+        logger.info("[ROUTER] route_sandbox_evaluate -> final_critic (status=READY_FOR_FINAL_CRITIC)")
+        return "final_critic"
 
     if status == FlowStatus.READY_FOR_AUDIT:
         if getattr(state.committee, "is_refactoring", False) or getattr(state, "final_fix", False):
+            logger.info("[ROUTER] route_sandbox_evaluate -> final_critic (Audit logic)")
             return "final_critic"
+        logger.info("[ROUTER] route_sandbox_evaluate -> auditor (status=READY_FOR_AUDIT)")
         return "auditor"
 
     if status == FlowStatus.WAITING_FOR_JULES:
+        logger.info("[ROUTER] route_sandbox_evaluate -> impl_coder_node (status=WAITING_FOR_JULES)")
         return "impl_coder_node"
 
+    if status == FlowStatus.POST_AUDIT_REFACTOR:
+        logger.info("[ROUTER] route_sandbox_evaluate -> impl_coder_node (status=POST_AUDIT_REFACTOR)")
+        return "impl_coder_node"
+
+    logger.info(f"[ROUTER] route_sandbox_evaluate -> default impl_coder_node (status={status})")
     return "impl_coder_node"
 
 

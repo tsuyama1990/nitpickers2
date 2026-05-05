@@ -43,7 +43,8 @@ class SandboxEvaluatorNodes:
                 target_branch = state.branch_name or state.feature_branch
                 if target_branch:
                     console.print(f"[dim]Synchronizing workspace to branch: {target_branch}[/dim]")
-                    await self.git.checkout_branch(target_branch)
+                    # Use force=True to ensure transient artifacts (.coverage, etc.) don't block sync
+                    await self.git.checkout_branch(target_branch, force=True)
                     await self.git.pull_changes()
 
                 timeout_limit = settings.sandbox.timeout

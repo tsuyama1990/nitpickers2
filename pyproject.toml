@@ -20,7 +20,7 @@ dependencies = [
     "langchain>=0.3.19",
     "langgraph>=1.0.5",
     "e2b-code-interpreter>=2.4.1",
-    "httpx>=0.28.1",
+    "httpx[http2]>=0.28.1",
     "google-auth>=2.43.0",
     "litellm>=1.80.11",
     "typer",

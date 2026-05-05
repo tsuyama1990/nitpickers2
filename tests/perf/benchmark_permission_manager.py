@@ -1,9 +1,9 @@
-import os
-import time
 import asyncio
+import os
+import sys
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-import sys
 
 # Mocking modules that might fail to import due to missing dependencies
 mock = MagicMock()
@@ -26,6 +26,7 @@ sys.modules["langgraph.graph"] = mock
 sys.modules["langgraph.prebuilt"] = mock
 
 from src.services.project_setup.permission_manager import PermissionManager
+
 
 def create_large_dir_structure(base_path, depth=3, width=5):
     if depth == 0:

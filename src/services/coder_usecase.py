@@ -125,6 +125,12 @@ class CoderUseCase:
             )
             try:
                 async with workspace_lock:
+                    # --- Branch Resolution ---
+                    # We always prefer to continue on the existing feature branch if it exists.
+                    target_branch = cycle_manifest.branch_name if (cycle_manifest and cycle_manifest.branch_name) else None
+                    if not target_branch and state.feature_branch:
+                        target_branch = state.feature_branch
+
                     instruction = self._build_instruction(
                         cycle_id, current_phase, state, cycle_manifest
                     )
@@ -139,7 +145,7 @@ class CoderUseCase:
                     session_req_id = f"{prefix}-cycle-{cycle_id}-iter-{iteration}-{timestamp}-{uuid.uuid4().hex[:6]}"
 
                     jules_session_name, result = await self._run_jules_session(
-                        session_req_id, instruction, target_files, context_files, cycle_id, mgr
+                        session_req_id, instruction, target_files, context_files, cycle_id, mgr, branch=target_branch
                     )
 
                 # --- Outside lock, wait for completion if running ---
@@ -149,6 +155,7 @@ class CoderUseCase:
                     )
                     result = await self.jules.wait_for_completion(jules_session_name)
                     if result and (result.get("status") == "success" or result.get("pr_url")):
+                        # Important: capture the commit after the implementation finishes
                         await self._update_last_processed_commit(state, result.get("branch_name"))
 
             except Exception as e:
@@ -173,10 +180,14 @@ class CoderUseCase:
             # Default: initial implementation leads to self-critic
             target_status = FlowStatus.READY_FOR_SELF_CRITIC
 
+            if state.status == FlowStatus.RETRY_FIX:
+                # If we just fixed an audit rejection, go straight back to audit (skip self-critic)
+                target_status = FlowStatus.READY_FOR_AUDIT
+
             if is_post_audit_refactor or getattr(state, "final_fix", False):
                 # If we just finished a polish/refactor, we move to FINAL critic review
                 target_status = FlowStatus.READY_FOR_FINAL_CRITIC
-            
+
             if state.status == FlowStatus.READY_FOR_FINAL_CRITIC:
                 # If we just finished the final critic phase itself, we are done
                 target_status = FlowStatus.COMPLETED
@@ -188,25 +199,38 @@ class CoderUseCase:
             )
 
             session_updates = {}
+            if jules_session_name:
+                session_updates["jules_session_name"] = jules_session_name
             if pr_val:
                 session_updates["pr_url"] = pr_val
             if branch_val:
                 session_updates["branch_name"] = branch_val
 
+            # Reset self-critic flag if this is a major implementation.
+            # We preserve it if we are fixing a structural (TDD) error or an auditor rejection
+            # to avoid redundant self-critic reviews and proceed directly to the next phase.
+            preserve_flag_statuses = {FlowStatus.TDD_FAILED, FlowStatus.RETRY_FIX}
+            new_self_critic_completed = state.self_critic_completed if state.status in preserve_flag_statuses else False
+
             session_update = (
-                state.session.model_copy(update=session_updates)
-                if session_updates
+                state.session.model_copy(update={**session_updates, "self_critic_completed": new_self_critic_completed})
+                if session_updates or new_self_critic_completed != state.self_critic_completed
                 else state.session
             )
+
+            # --- Final Verification: If we reused a session, ensure the commit hash is updated in state ---
+            if branch_val and not state.last_processed_commit:
+                await self._update_last_processed_commit(state, branch_val)
 
             # Update the cycle's feature branch if a new one was created by Jules
             if cycle_manifest:
                 mgr.update_cycle_state(
-                    cycle_id, 
-                    session_restart_count=0, 
-                    pr_url=pr_val, 
+                    cycle_id,
+                    session_restart_count=0,
+                    pr_url=pr_val,
                     branch_name=branch_val,
-                    status=target_status # Persist status for resume support
+                    status=target_status, # Persist status for resume support
+                    self_critic_completed=new_self_critic_completed
                 )
 
             # --- Explicit PR Checkpoint Notification ---
@@ -228,6 +252,7 @@ class CoderUseCase:
                 "session": session_update,
                 "branch_name": branch_val,
                 "pr_url": pr_val,
+                "self_critic_completed": new_self_critic_completed,
             }
 
         # --- E. Failure Handling ---
@@ -330,9 +355,12 @@ class CoderUseCase:
         # Check session state
         session_state = await self.jules.get_session_state(cycle_manifest.jules_session_id)
         if session_state not in _REUSABLE_STATES:
-            console.print(
-                f"[yellow]Session in unexpected/failed state ({session_state}). "
-                f"Creating new session...[/yellow]"
+            # --- Branch-Centric Fix: Silently Fallback to New Session ---
+            # Instead of a warning, we log an info message that we are continuing on the same branch.
+            reason = "terminal" if session_state == "FAILED" else "unexpected"
+            logger.info(
+                f"Session {cycle_manifest.jules_session_id} is in {reason} state ({session_state}). "
+                f"Gracefully transitioning to a new session on branch '{cycle_manifest.branch_name or 'base'}'."
             )
             return None
 
@@ -364,6 +392,7 @@ class CoderUseCase:
             return await self._send_audit_feedback_to_session(
                 cycle_manifest.jules_session_id,
                 self._build_instruction(state.cycle_id, None, state, cycle_manifest),
+                state=state,
                 wrap=False,
             )
 
@@ -394,7 +423,7 @@ class CoderUseCase:
 
         if cycle_manifest.jules_session_id is not None:
             return await self._send_audit_feedback_to_session(
-                cycle_manifest.jules_session_id, feedback_payload
+                cycle_manifest.jules_session_id, feedback_payload, state=state
             )
         return None
 
@@ -406,6 +435,7 @@ class CoderUseCase:
         context_files: list[str],
         cycle_id: str,
         mgr: StateManager,
+        branch: str | None = None,
     ) -> tuple[str | None, dict[str, Any]]:
         """Launch a new Jules session.
 
@@ -421,6 +451,7 @@ class CoderUseCase:
             target_files=target_files,
             context_files=context_files,
             require_plan_approval=False,
+            branch=branch,
         )
 
         jules_session_name: str | None = result.get("session_name")
@@ -469,12 +500,21 @@ class CoderUseCase:
             console.print("[dim]Waiting for Coder Critic to finish review and push fixes...[/dim]")
 
             result = dict(await self.jules.wait_for_completion(jules_session_name))
+            if result and (result.get("status") == "success" or result.get("pr_url")):
+                branch_val = result.get("branch_name")
+                if branch_val and state.last_processed_commit:
+                    current_commit = await self.jules.get_latest_branch_commit(branch_val)
+                    if current_commit == state.last_processed_commit:
+                        # In critic phase, it's possible no changes were needed.
+                        # We don't force a push here, but we update the state to the current commit.
+                        logger.info(f"[CRITIC] No new commits in critic phase on {branch_val}. This is acceptable.")
+                
+                # Always capture the latest state after the phase completes
+                await self._update_last_processed_commit(state, result.get("branch_name"))
         except Exception as e:
             console.print(f"[yellow]Warning: Coder Critic phase error, proceeding: {e}[/yellow]")
             return None
         else:
-            if result and (result.get("status") == "success" or result.get("pr_url")):
-                await self._update_last_processed_commit(state, result.get("branch_name"))
             return result
 
     async def _update_last_processed_commit(
@@ -489,7 +529,7 @@ class CoderUseCase:
             state.last_processed_commit = commit
 
     async def _send_audit_feedback_to_session(
-        self, session_id: str, feedback: str, wrap: bool = True
+        self, session_id: str, feedback: str, state: CycleState, wrap: bool = True
     ) -> dict[str, Any] | None:
         """Send audit feedback to existing Jules session and wait for new PR.
 
@@ -513,6 +553,31 @@ class CoderUseCase:
             # Continue session sends the message and waits for completion via LangGraph
             result = await self.jules.continue_session(session_id, feedback_msg)
             if result and (result.get("status") == "success" or result.get("pr_url")):
+                branch_val = result.get("branch_name")
+                if branch_val and state.last_processed_commit:
+                    current_commit = await self.jules.get_latest_branch_commit(branch_val)
+                    if current_commit == state.last_processed_commit:
+                        # If it's a refactoring phase (wrap=False), we can be more lenient
+                        # as Jules might legitimately decide no changes are needed.
+                        if not wrap:
+                            console.print("[bold green]Jules confirms no additional refactoring needed. Proceeding to final review.[/bold green]")
+                            return dict(result)
+
+                        console.print(
+                            f"[yellow]Warning: Jules completed the turn but no new commits were found on {branch_val}.[/yellow]"
+                        )
+                        console.print("[cyan]Sending fallback request to Jules to push commits...[/cyan]")
+                        push_msg = (
+                            "You marked the task as completed, but you did not push any new commits. "
+                            "You MUST apply the code changes, run `git commit`, and `git push` before completing your turn. "
+                            "Please do this now."
+                        )
+                        result = await self.jules.continue_session(session_id, push_msg)
+                        if result and (result.get("status") == "success" or result.get("pr_url")):
+                            current_commit = await self.jules.get_latest_branch_commit(branch_val)
+                            if current_commit == state.last_processed_commit:
+                                # Still no push after nudge? For audit rejections, this is a failure.
+                                raise Exception("Jules refused to push new commits after audit rejection fallback.")
                 return dict(result)
 
             console.print(
@@ -521,7 +586,7 @@ class CoderUseCase:
         except Exception as e:
             logger.exception(f"Failed to send audit feedback to existing session {session_id}")
             console.print(
-                f"[yellow]Failed to send feedback to existing session: {e}. Creating new session...[/yellow]"
+                f"[yellow]Session continuity failed: {e}. Creating new session...[/yellow]"
             )
         else:
             return None

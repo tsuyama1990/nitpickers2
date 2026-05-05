@@ -61,6 +61,7 @@ class SessionPersistenceState(BaseModel):
     is_session_finalized: bool = False
     branch_name: str | None = None
     last_processed_commit: str | None = None
+    self_critic_completed: bool = False
 
 
 class AuditState(BaseModel):
@@ -303,6 +304,14 @@ class CycleState(BaseModel):
     @requested_cycle_count.setter
     def requested_cycle_count(self, value: int | None) -> None:
         self.config.requested_cycle_count = value
+
+    @property
+    def self_critic_completed(self) -> bool:
+        return self.session.self_critic_completed
+
+    @self_critic_completed.setter
+    def self_critic_completed(self, value: bool) -> None:
+        self.session.self_critic_completed = value
 
     @property
     def planned_cycle_count(self) -> int | None:

@@ -132,6 +132,7 @@ class JulesClient:
         prompt: str,
         files: list[str] | None = None,
         require_plan_approval: bool = False,
+        branch: str | None = None,
         **extra: Any,
     ) -> dict[str, Any]:
         """Orchestrates the Jules session."""
@@ -139,7 +140,8 @@ class JulesClient:
             errmsg = "Missing JULES_API_KEY or ADC credentials."
             raise JulesSessionError(errmsg)
 
-        owner, repo_name, branch = await self.git_context.prepare_git_context()
+        owner, repo_name, context_branch = await self.git_context.prepare_git_context(branch=branch)
+        branch_to_use = branch or context_branch
         full_prompt = self.context_builder.construct_run_prompt(
             prompt, files, extra.get("target_files"), extra.get("context_files")
         )
@@ -148,7 +150,7 @@ class JulesClient:
             "prompt": full_prompt,
             "sourceContext": {
                 "source": f"sources/github/{owner}/{repo_name}",
-                "githubRepoContext": {"startingBranch": branch},
+                "githubRepoContext": {"startingBranch": branch_to_use},
             },
             "automationMode": "AUTO_CREATE_PR",
             "requirePlanApproval": require_plan_approval,
@@ -325,15 +327,25 @@ class JulesClient:
         """Get the latest commit hash for a branch via Git."""
         try:
             git = GitManager()
-            # 1. Try local rev-parse
+            # 1. First, always try to get the true remote commit since Jules pushes to remote
+            try:
+                # Target refs/heads explicitly to avoid ambiguous ref matches (e.g. pull requests)
+                output = await git._run_git(["ls-remote", "origin", f"refs/heads/{branch_name}"], check=True)
+                if output and output.strip():
+                    # The first column is the commit hash
+                    return output.strip().split()[0]
+            except Exception as e:
+                logger.debug(f"ls-remote failed for {branch_name}: {e}")
+
+            # 2. Try local rev-parse as fallback
             try:
                 return await git._run_git(["rev-parse", branch_name], check=True)
             except Exception:
-                # 2. Try origin/branch_name (often necessary for Jules branches)
+                # 3. Try origin/branch_name
                 try:
                     return await git._run_git(["rev-parse", f"origin/{branch_name}"], check=True)
                 except Exception:
-                    # 3. Last ditch: fetch and try again
+                    # 4. Last ditch: fetch and try again
                     await git.fetch_changes()
                     return await git._run_git(["rev-parse", f"origin/{branch_name}"], check=True)
         except Exception as e:
@@ -341,9 +353,10 @@ class JulesClient:
             return "unknown"
 
     def _get_session_url(self, session_name: str) -> str:
+        base_url = self.base_url.rstrip("/")
         if session_name.startswith("sessions/"):
-            return f"{self.base_url}/{session_name}"
-        return f"{self.base_url}/sessions/{session_name}"
+            return f"{base_url}/{session_name}"
+        return f"{base_url}/sessions/{session_name}"
 
     @retry_on_429(DispatcherConfig())
     async def get_session_state(self, session_id: str) -> str:

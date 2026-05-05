@@ -145,7 +145,7 @@ class GitCheckoutMixin(BaseGitManager):
                 logger.info("Rebase aborted successfully.")
             except Exception as abort_err:
                 logger.warning(f"Could not abort rebase: {abort_err}")
-            
+
             # If we are in an isolated worktree (self.cwd is set), discard conflicting local auto-commits
             # and reset hard to match the PR state exactly.
             if self.cwd:

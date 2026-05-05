@@ -109,7 +109,7 @@ class GraphBuilder:
             "impl_coder_node",
             self.nodes.check_coder_outcome,
             {
-                "self_critic": "self_critic_node",
+                "self_critic_node": "self_critic_node",
                 settings.node_sandbox_evaluate: settings.node_sandbox_evaluate,
                 FlowStatus.FAILED.value: END,
                 FlowStatus.COMPLETED.value: END,
@@ -134,18 +134,8 @@ class GraphBuilder:
             },
         )
 
-        # Auditor -> committee on reject, refactor on pass_all, next auditor on next_auditor
-        workflow.add_conditional_edges(
-            "auditor",
-            self.nodes.route_auditor,
-            {
-                "reject": "committee_manager_node",  # Rejection now goes through committee budget check
-                "next_auditor": "auditor",
-                "pass_all": "refactor_node",
-                "failed": END,
-                "requires_pivot": END,
-            },
-        )
+        # Auditor always goes to committee manager to handle state updates and budget
+        workflow.add_edge("auditor", "committee_manager_node")
 
         # Committee -> route to retry/next_auditor/refactor/final_critic based on budget
         workflow.add_conditional_edges(

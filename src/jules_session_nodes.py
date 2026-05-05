@@ -68,13 +68,22 @@ class JulesSessionNodes:
                     data = response.json()
 
                     new_jules_state = data.get("state")
-                    if state.jules_state != new_jules_state:
-                        state.previous_jules_state = state.jules_state
-                        state.last_jules_state_change_time = (
-                            now()
-                        )  # reset stale clock on ANY state change
+                    
+                    # --- NEW: Activity-Aware Watchdog Update ---
+                    # We fetch activities to check for progress even if the state string (e.g. IN_PROGRESS) hasn't changed.
+                    activities = await self.client.list_activities(state.session_url)
+                    activity_count = len(activities)
+
+                    if state.jules_state != new_jules_state or activity_count > state.last_activity_count:
+                        if state.jules_state != new_jules_state:
+                            state.previous_jules_state = state.jules_state
+                        
+                        state.last_jules_state_change_time = now()  # reset stale clock on state change OR activity
+                        logger.debug(f"Watchdog reset: State={new_jules_state}, ActivityCount={activity_count}")
+                    
                     state.jules_state = new_jules_state
                     state.raw_data = data
+                    state.last_activity_count = activity_count
 
                     # Only emit INFO when state changes; repeated same-state polls are demoted to DEBUG
                     if new_jules_state != _state_in.jules_state:
@@ -166,6 +175,27 @@ class JulesSessionNodes:
                         pr_found = any(
                             "pullRequest" in output for output in data.get("outputs", [])
                         )
+                        
+                        # NEW: Also scan activities for a PR (sometimes it's only in progressUpdated events)
+                        if not pr_found:
+                            logger.info(f"PR not in outputs for FAILED session {state.session_name}. Scanning activities...")
+                            try:
+                                activities = await self.client.list_activities(state.session_url)
+                                for act in activities:
+                                    # Check progressUpdated or other activities that might wrap outputs
+                                    # (Jules API: progressUpdated.outputs[].pullRequest)
+                                    for key in ["progressUpdated", "sessionCompleted"]:
+                                        if key in act:
+                                            outputs = act[key].get("outputs", [])
+                                            if any("pullRequest" in o for o in outputs):
+                                                pr_found = True
+                                                logger.info(f"Found PR in {key} activity for FAILED session!")
+                                                break
+                                    if pr_found:
+                                        break
+                            except Exception as e:
+                                logger.debug(f"Failed to scan activities for PR in FAILED session: {e}")
+
                         if pr_found:
                             logger.info(
                                 f"Session {state.session_name} in FAILED state, but PR detected. Proceeding to validation."
@@ -257,9 +287,6 @@ class JulesSessionNodes:
                         else:
                             state.status = SessionStatus.VALIDATING_COMPLETION
                             return self._compute_diff(_state_in, state)
-
-                    # Update activity count
-                    await self._update_activity_count(state, client)
 
                     # Handle manual user input
                     await self.client._handle_manual_input(state.session_url)
@@ -436,19 +463,18 @@ class JulesSessionNodes:
                     logger.info(
                         "Stale completion detected, BUT valid IN_PROGRESS->COMPLETED transition observed. Treating as complete."
                     )
+                # If we are not expecting new work (e.g. cold start resume),
+                # a stale completion is still a valid state to proceed.
+                elif not state.expect_new_work:
+                    logger.info(
+                        "Stale completion detected during resume/non-interactive check. Proceeding."
+                    )
                 else:
-                    # If we are not expecting new work (e.g. cold start resume), 
-                    # a stale completion is still a valid state to proceed.
-                    if not state.expect_new_work:
-                        logger.info(
-                            "Stale completion detected during resume/non-interactive check. Proceeding."
-                        )
-                    else:
-                        logger.info(
-                            "Stale completion detected (ignored). Waiting for new Agent activity..."
-                        )
-                        state.status = SessionStatus.MONITORING
-                        return self._compute_diff(_state_in, state)
+                    logger.info(
+                        "Stale completion detected (ignored). Waiting for new Agent activity..."
+                    )
+                    state.status = SessionStatus.MONITORING
+                    return self._compute_diff(_state_in, state)
 
             # Logic removed: Checking for ongoing work indicators via keywords caused infinite loops.
 
@@ -520,6 +546,38 @@ class JulesSessionNodes:
                                 state.raw_data = fresh_data
                                 state.status = SessionStatus.SUCCESS
                                 return self._compute_diff(_state_in, state)
+                    
+                    # NEW: Deep scan activities if outputs are still empty
+                    logger.debug(f"PR not in fresh outputs for {state.session_name}. Scanning activities...")
+                    activities = await self.client.list_activities(state.session_url)
+                    for act in activities:
+                        for key in ["progressUpdated", "sessionCompleted", "agentMessaged"]:
+                            if key in act:
+                                # agentMessaged might contain the URL in text, progressUpdated/sessionCompleted have outputs
+                                if key == "agentMessaged":
+                                    # Fallback for when Jules mentions the PR URL but API object is missing
+                                    msg = act["agentMessaged"].get("agentMessage", "")
+                                    if "github.com/" in msg and "/pull/" in msg:
+                                        import re
+                                        urls = re.findall(r'https://github\.com/[\w\-/]+/pull/\d+', msg)
+                                        if urls:
+                                            pr_url = urls[0]
+                                            logger.info(f"Extracted PR URL from agent message: {pr_url}")
+                                            state.pr_url = pr_url
+                                            state.status = SessionStatus.SUCCESS
+                                            return self._compute_diff(_state_in, state)
+                                else:
+                                    outputs = act[key].get("outputs", [])
+                                    for o in outputs:
+                                        if "pullRequest" in o:
+                                            pr = o["pullRequest"]
+                                            pr_url = pr.get("url")
+                                            if pr_url:
+                                                logger.info(f"Found PR in {key} activity outputs: {pr_url}")
+                                                state.pr_url = pr_url
+                                                state.branch_name = pr.get("headRef")
+                                                state.status = SessionStatus.SUCCESS
+                                                return self._compute_diff(_state_in, state)
         except Exception as e:
             logger.debug(f"Failed to re-fetch session for PR check: {e}")
 

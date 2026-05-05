@@ -60,9 +60,11 @@ class JulesApiClient:
     def _get_headers(self) -> dict[str, str]:
         """Returns headers for Jules API, including model version selection."""
         headers = {
-            "x-goog-api-key": self._api_key,
-            "Content-Type": settings.jules.content_type,
+            "Content-Type": "application/json",
         }
+        # Only add x-goog-api-key if we don't use query params (some environments prefer query params)
+        headers["x-goog-api-key"] = self._api_key
+        
         # Add model version header if configured
         if settings.jules.model:
             headers["x-goog-agent-version"] = settings.jules.model
@@ -75,7 +77,9 @@ class JulesApiClient:
         data: dict[str, Any] | None = None,
         params: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        url = endpoint if endpoint.startswith("http") else f"{self.BASE_URL}/{endpoint}"
+        base_url = self.BASE_URL.rstrip("/")
+        endpoint = endpoint.lstrip("/")
+        url = f"{base_url}/{endpoint}" if not endpoint.startswith("http") else endpoint
 
         try:
             with httpx.Client(timeout=settings.jules.request_timeout) as client:
@@ -93,10 +97,10 @@ class JulesApiClient:
                 return dict(json.loads(resp_body)) if resp_body else {}
 
         except httpx.HTTPStatusError as e:
-            if e.response.status_code == 404:
-                msg = f"404 Not Found: {url}"
-                raise JulesApiError(msg) from e
             err_msg = e.response.text
+            if e.response.status_code == 404:
+                msg = f"404 Not Found: {url}\nResponse body: {err_msg}"
+                raise JulesApiError(msg) from e
             logger.error(f"Jules API Error {e.response.status_code}: {err_msg}")
             emsg = f"API request failed: {e.response.status_code} {err_msg}"
             raise JulesApiError(emsg) from e
@@ -112,29 +116,62 @@ class JulesApiClient:
         data: dict[str, Any] | None = None,
         params: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        """Async version of _request using httpx.AsyncClient to avoid blocking the event loop."""
-        url = endpoint if endpoint.startswith("http") else f"{self.BASE_URL}/{endpoint}"
+        """Async version of _request with aggressive retry strategies for 404s."""
+        base_url = self.BASE_URL.rstrip("/")
+        endpoint = endpoint.lstrip("/")
+        url = f"{base_url}/{endpoint}" if not endpoint.startswith("http") else endpoint
 
-        try:
-            async with httpx.AsyncClient(timeout=settings.jules.request_timeout) as client:
-                response = await client.request(
+        # Prepare headers and params
+        headers = self._get_headers()
+        req_params = params.copy() if params else {}
+
+        async def _do_req(target_url: str, use_h2: bool = True) -> httpx.Response:
+            async with httpx.AsyncClient(
+                timeout=settings.jules.request_timeout,
+                http2=use_h2
+            ) as client:
+                return await client.request(
                     method,
-                    url,
-                    headers=self._get_headers(),
+                    target_url,
+                    headers=headers,
                     json=data,
-                    params=params,
+                    params=req_params,
                 )
 
-                response.raise_for_status()
+        try:
+            response = await _do_req(url)
+            
+            # 404 Handling: Try various workarounds
+            if response.status_code == 404:
+                logger.info(f"404 Not Found for {url}. Attempting workarounds...")
+                
+                # Workaround 1: Trailing slash (sometimes required for collections)
+                if not url.endswith("/") and "/" not in endpoint:
+                    url_slash = f"{url}/"
+                    logger.debug(f"Retry 1: Trailing slash -> {url_slash}")
+                    response = await _do_req(url_slash)
+                
+                # Workaround 2: Key in query parameter (fixes some proxy/auth issues)
+                if response.status_code == 404 and "key=" not in str(url):
+                    separator = "&" if "?" in str(url) else "?"
+                    url_key = f"{url}{separator}key={self._api_key}"
+                    logger.debug(f"Retry 2: Key in query param -> {url_key[:50]}...")
+                    response = await _do_req(url_key)
 
-                resp_body = response.text
-                return dict(json.loads(resp_body)) if resp_body else {}
+                # Workaround 3: Force HTTP/1.1 (fixes some h2 multiplexing issues)
+                if response.status_code == 404:
+                    logger.debug("Retry 3: Forcing HTTP/1.1")
+                    response = await _do_req(url, use_h2=False)
+
+            response.raise_for_status()
+            resp_body = response.text
+            return dict(json.loads(resp_body)) if resp_body else {}
 
         except httpx.HTTPStatusError as e:
-            if e.response.status_code == 404:
-                msg = f"404 Not Found: {url}"
-                raise JulesApiError(msg) from e
             err_msg = e.response.text
+            if e.response.status_code == 404:
+                msg = f"404 Not Found: {url}\nResponse body: {err_msg}"
+                raise JulesApiError(msg) from e
             logger.error(f"Jules API Error {e.response.status_code}: {err_msg}")
             emsg = f"API request failed: {e.response.status_code} {err_msg}"
             raise JulesApiError(emsg) from e
