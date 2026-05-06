@@ -93,9 +93,12 @@ suppress-dummy-args = true  # Arguments starting with _ do not require type hint
 "time.sleep".msg = "Use Playwright auto-waiting instead"
 
 [tool.pytest.ini_options]
-addopts = "--cov=dev_src --cov=src --cov-report=term-missing"
+addopts = "-m \"not live\" --cov=dev_src --cov=src --cov-report=term-missing"
 testpaths = ["tests"]
-markers = ["live: marks tests as live tests requiring real API keys"]
+norecursedirs = ["dev_documents", "tutorials", ".ac_cdd"]
+markers = [
+    "live: marks tests as requiring live APIs and external access (deselect with '-m \"not live\"')"
+]
 
 [tool.mypy]
 disallow_untyped_decorators = false

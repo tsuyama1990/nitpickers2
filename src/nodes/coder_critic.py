@@ -31,7 +31,7 @@ class CoderCriticNodes:
 
         from src.enums import WorkPhase
 
-        is_final = state.current_phase == WorkPhase.FINAL_CRITIC
+        is_final = state.current_phase in {WorkPhase.FINAL_CRITIC, WorkPhase.REFACTORING}
         result = await usecase.run_critic_phase(state, cycle_id, session_id, is_final=is_final)
 
         if not result:

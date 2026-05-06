@@ -51,6 +51,22 @@ def route_sandbox_evaluate(state: CycleState) -> str:  # noqa: PLR0911, C901
         logger.info("[ROUTER] route_sandbox_evaluate -> impl_coder_node (status=TDD_FAILED)")
         return "impl_coder_node"
 
+    if status == FlowStatus.READY_FOR_SELF_CRITIC:
+        logger.info(
+            "[ROUTER] route_sandbox_evaluate -> self_critic_node (status=READY_FOR_SELF_CRITIC)"
+        )
+        return "self_critic_node"
+
+    if status == FlowStatus.READY_FOR_AUDIT:
+        logger.info("[ROUTER] route_sandbox_evaluate -> auditor (status=READY_FOR_AUDIT)")
+        return "auditor"
+
+    if status == FlowStatus.READY_FOR_FINAL_CRITIC:
+        logger.info(
+            "[ROUTER] route_sandbox_evaluate -> final_critic (status=READY_FOR_FINAL_CRITIC)"
+        )
+        return "final_critic"
+
     if current_phase == WorkPhase.CODER:
         logger.info("[ROUTER] route_sandbox_evaluate -> self_critic_node (phase=CODER)")
         return "self_critic_node"
