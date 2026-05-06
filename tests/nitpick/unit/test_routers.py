@@ -1,6 +1,6 @@
 from src.config import settings
 from src.domain_models.review import AuditResult
-from src.enums import FlowStatus
+from src.enums import FlowStatus, WorkPhase
 from src.nodes.routers import (
     route_architect_critic,
     route_auditor,
@@ -30,11 +30,11 @@ def test_route_sandbox_evaluate() -> None:
     # Test GREEN phase READY_FOR_AUDIT, not refactoring
     state = CycleState(cycle_id="01", status=FlowStatus.READY_FOR_AUDIT)
     state.test.tdd_phase = "green"
-    state.committee.is_refactoring = False
+    state.current_phase = WorkPhase.AUDIT
     assert route_sandbox_evaluate(state) == "auditor"
 
     # Test GREEN phase READY_FOR_AUDIT, is refactoring
-    state.committee.is_refactoring = True
+    state.current_phase = WorkPhase.REFACTORING
     assert route_sandbox_evaluate(state) == "final_critic"
 
     # Test GREEN phase fallback

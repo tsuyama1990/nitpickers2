@@ -22,7 +22,6 @@ class CommitteeState(BaseModel):
     current_auditor_index: int = Field(default=1, ge=1)
     current_auditor_review_count: int = Field(default=1, ge=1)
     iteration_count: int = Field(default=0, ge=0)
-    is_refactoring: bool = Field(default=False)
     audit_attempt_count: int = Field(default=0, ge=0)
     fallback_count: int = Field(default=0, ge=0)
     anti_patterns_memory: list[str] = Field(default_factory=list)
@@ -61,7 +60,6 @@ class SessionPersistenceState(BaseModel):
     is_session_finalized: bool = False
     branch_name: str | None = None
     last_processed_commit: str | None = None
-    self_critic_completed: bool = False
 
 
 class AuditState(BaseModel):
@@ -124,7 +122,6 @@ class CycleState(BaseModel):
     error: str | None = None
     conflict_status: FlowStatus | None = None
     concurrent_dependencies: list[str] = Field(default_factory=list)
-    final_fix: bool = Field(default=False)
     qa_retry_count: int = 0
     branch_name: str | None = None
 
@@ -164,14 +161,6 @@ class CycleState(BaseModel):
     @iteration_count.setter
     def iteration_count(self, value: int) -> None:
         self.committee.iteration_count = value
-
-    @property
-    def is_refactoring(self) -> bool:
-        return self.committee.is_refactoring
-
-    @is_refactoring.setter
-    def is_refactoring(self, value: bool) -> None:
-        self.committee.is_refactoring = value
 
     @property
     def audit_attempt_count(self) -> int:
@@ -306,14 +295,6 @@ class CycleState(BaseModel):
         self.config.requested_cycle_count = value
 
     @property
-    def self_critic_completed(self) -> bool:
-        return self.session.self_critic_completed
-
-    @self_critic_completed.setter
-    def self_critic_completed(self, value: bool) -> None:
-        self.session.self_critic_completed = value
-
-    @property
     def planned_cycle_count(self) -> int | None:
         return self.config.planned_cycle_count
 
@@ -366,7 +347,6 @@ class CycleState(BaseModel):
                 "current_auditor_index",
                 "current_auditor_review_count",
                 "iteration_count",
-                "is_refactoring",
                 "audit_attempt_count",
                 "fallback_count",
                 "anti_patterns_memory",

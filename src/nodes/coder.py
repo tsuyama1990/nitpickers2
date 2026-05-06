@@ -19,13 +19,17 @@ class CoderNodes:
         result["test"] = test_update
         return result
 
+
     async def impl_coder_node(self, state: CycleState) -> dict[str, Any]:
+        from src.enums import WorkPhase
         from src.services.coder_usecase import CoderUseCase
 
         usecase = CoderUseCase(self.jules)
         state.test.tdd_phase = "green"
+        state.current_phase = WorkPhase.CODER
         result = dict(await usecase.execute(state))
 
         test_update = state.test.model_copy(update={"tdd_phase": "green"})
         result["test"] = test_update
+        result["current_phase"] = WorkPhase.CODER
         return result

@@ -6,7 +6,10 @@ class WorkPhase(StrEnum):
     ARCHITECT = "architect"
     ARCHITECT_DONE = "architect_done"
     CODER = "coder"
+    SELF_CRITIC = "self_critic"
+    AUDIT = "audit"
     REFACTORING = "refactoring"
+    FINAL_CRITIC = "final_critic"
     QA = "qa"
 
 

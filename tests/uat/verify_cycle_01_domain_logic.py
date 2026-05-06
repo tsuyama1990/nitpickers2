@@ -3,6 +3,8 @@ from pathlib import Path
 
 import marimo
 
+from src.enums import WorkPhase
+
 # Provide required modules available to Marimo when executing this standalone snippet
 try:
     # Try local import
@@ -46,7 +48,7 @@ def test_ux_flow_cycle_01() -> None:
             assert next_route == "pass_all"
 
     # Mock Refactor
-    state.committee.is_refactoring = True
+    state.current_phase = WorkPhase.REFACTORING
     state.status = FlowStatus.READY_FOR_AUDIT
 
     # Mock Sandbox evaluate post-refactor

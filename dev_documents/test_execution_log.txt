@@ -1,9 +1,0 @@
-STDOUT:
-Running test_fix_permissions_traverses_all_files...
-PASSED
-Running test_fix_permissions_handles_chown...
-PASSED
-Running test_fix_permissions_ignores_non_existent_path...
-PASSED
-
-STDERR:

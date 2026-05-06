@@ -41,7 +41,7 @@ def _make_state(
     return CycleState(
         cycle_id="01",
         status=status,
-        final_fix=final_fix,
+
         committee=committee,
         audit=audit,
     )
@@ -66,7 +66,7 @@ class TestCommitteeBudgetEnforcement:
             result = await usecase.execute(state)
 
         assert result["status"] == FlowStatus.RETRY_FIX
-        assert result.get("final_fix") is not True
+        assert result.get("current_phase") != WorkPhase.FINAL_CRITIC
 
     @pytest.mark.asyncio
     async def test_next_auditor_after_review_limit(self) -> None:
@@ -105,7 +105,7 @@ class TestCommitteeBudgetEnforcement:
             usecase = CommitteeUseCase()
             result = await usecase.execute(state)
 
-        assert result.get("final_fix") is True, (
+        assert result.get("current_phase") == WorkPhase.FINAL_CRITIC, (
             f"Budget exhausted: final_fix must be True, got result={result}"
         )
 
@@ -160,7 +160,7 @@ class TestCommitteeBudgetEnforcement:
                 result = await usecase.execute(state)
 
                 if expect_final_fix:
-                    assert result.get("final_fix") is True, (
+                    assert result.get("current_phase") == WorkPhase.FINAL_CRITIC, (
                         f"At round {auditor_idx}/{review_count}, expected final_fix=True"
                     )
 

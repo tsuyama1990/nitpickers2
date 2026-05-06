@@ -20,7 +20,7 @@ def test_route_sandbox_evaluate_refactoring() -> None:
     state = CycleState(
         cycle_id="02",
         status=FlowStatus.READY_FOR_AUDIT,
-        committee=CommitteeState(is_refactoring=True),
+        committee=CommitteeState(),
     )
     # should return final_critic
     assert route_sandbox_evaluate(state) == "final_critic"
@@ -30,7 +30,7 @@ def test_route_sandbox_evaluate_auditor() -> None:
     state = CycleState(
         cycle_id="03",
         status=FlowStatus.READY_FOR_AUDIT,
-        committee=CommitteeState(is_refactoring=False),
+        committee=CommitteeState(),
     )
     assert route_sandbox_evaluate(state) == "auditor"
 

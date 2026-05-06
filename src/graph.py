@@ -104,7 +104,6 @@ class GraphBuilder:
 
         workflow.add_edge(START, "impl_coder_node")
 
-        # Conditional edge from impl_coder_node
         workflow.add_conditional_edges(
             "impl_coder_node",
             self.nodes.check_coder_outcome,
@@ -117,7 +116,6 @@ class GraphBuilder:
             },
         )
 
-        # self_critic_node -> sandbox_evaluate
         workflow.add_edge("self_critic_node", settings.node_sandbox_evaluate)
 
         workflow.add_conditional_edges(
@@ -126,18 +124,16 @@ class GraphBuilder:
             {
                 "auditor": "auditor",
                 "impl_coder_node": "impl_coder_node",
-                "refactor_node": "refactor_node",
                 "self_critic_node": "self_critic_node",
                 "final_critic": "final_critic_node",
+                "approve": END,
                 "failed": END,
                 "end": END,
             },
         )
 
-        # Auditor always goes to committee manager to handle state updates and budget
         workflow.add_edge("auditor", "committee_manager_node")
 
-        # Committee -> route to retry/next_auditor/refactor/final_critic based on budget
         workflow.add_conditional_edges(
             "committee_manager_node",
             self.nodes.route_committee,  # type: ignore[attr-defined]
@@ -149,18 +145,9 @@ class GraphBuilder:
             },
         )
 
-        # refactor_node -> sandbox_evaluate
         workflow.add_edge("refactor_node", settings.node_sandbox_evaluate)
 
-        # final_critic_node -> end or impl_coder_node
-        workflow.add_conditional_edges(
-            "final_critic_node",
-            self.nodes.route_final_critic,
-            {
-                "approve": END,
-                "reject": "impl_coder_node",
-            },
-        )
+        workflow.add_edge("final_critic_node", settings.node_sandbox_evaluate)
 
         return workflow
 

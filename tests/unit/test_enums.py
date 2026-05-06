@@ -3,22 +3,22 @@ from src.enums import FlowStatus, WorkPhase
 
 def test_work_phase_values() -> None:
     """Test that WorkPhase enum has correct values."""
-    assert WorkPhase.INIT == "init"
-    assert WorkPhase.ARCHITECT == "architect"
-    assert WorkPhase.ARCHITECT_DONE == "architect_done"
-    assert WorkPhase.CODER == "coder"
-    assert WorkPhase.REFACTORING == "refactoring"
-    assert WorkPhase.QA == "qa"
+    assert WorkPhase.INIT.value == "init"
+    assert WorkPhase.ARCHITECT.value == "architect"
+    assert WorkPhase.ARCHITECT_DONE.value == "architect_done"
+    assert WorkPhase.CODER.value == "coder"
+    assert WorkPhase.REFACTORING.value == "refactoring"
+    assert WorkPhase.QA.value == "qa"
 
 
 def test_flow_status_values() -> None:
     """Test that FlowStatus enum has some key correct values."""
-    assert FlowStatus.START == "start"
-    assert FlowStatus.FAILED == "failed"
-    assert FlowStatus.COMPLETED == "completed"
-    assert FlowStatus.END == "end"
-    assert FlowStatus.APPROVED == "approved"
-    assert FlowStatus.REJECTED == "rejected"
+    assert FlowStatus.START.value == "start"
+    assert FlowStatus.FAILED.value == "failed"
+    assert FlowStatus.COMPLETED.value == "completed"
+    assert FlowStatus.END.value == "end"
+    assert FlowStatus.APPROVED.value == "approved"
+    assert FlowStatus.REJECTED.value == "rejected"
 
 
 def test_enums_are_strings() -> None:

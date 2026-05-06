@@ -7,8 +7,9 @@ from src.state import CycleState
 
 def check_coder_outcome(state: CycleState) -> str:
     status = getattr(state, "status", None)
+    current_phase = getattr(state, "current_phase", None)
     from src.utils import logger
-    logger.info(f"[ROUTER] check_coder_outcome: status={status}")
+    logger.info(f"[ROUTER] check_coder_outcome: status={status}, phase={current_phase}")
 
     if status in {FlowStatus.FAILED, FlowStatus.ARCHITECT_FAILED}:
         return str(FlowStatus.FAILED.value)
@@ -16,35 +17,18 @@ def check_coder_outcome(state: CycleState) -> str:
     if status == FlowStatus.COMPLETED:
         return str(FlowStatus.COMPLETED.value)
 
-    # Always route to implementation node, bypassing the TDD test loop
     if status == FlowStatus.CODER_RETRY:
         return "impl_coder_node"
 
-    if status == FlowStatus.READY_FOR_SELF_CRITIC:
-        if state.self_critic_completed:
-            logger.info(f"[ROUTER] check_coder_outcome -> SKIP self_critic_node (Already completed)")
-            return settings.node_sandbox_evaluate
-
-        logger.info(f"[ROUTER] check_coder_outcome -> self_critic_node (status={status})")
-        return "self_critic_node"
-
-    # For any ready status (AUDIT, FINAL_CRITIC), always go to sandbox first
-    if status in {
-        FlowStatus.READY_FOR_AUDIT,
-        FlowStatus.READY_FOR_FINAL_CRITIC,
-        FlowStatus.POST_AUDIT_REFACTOR,
-    }:
-        logger.info(f"[ROUTER] check_coder_outcome -> sandbox (status={status})")
-        return settings.node_sandbox_evaluate
-
-    logger.info(f"[ROUTER] check_coder_outcome -> default sandbox (status={status})")
+    logger.info(f"[ROUTER] check_coder_outcome -> default sandbox (status={status}, phase={current_phase})")
     return settings.node_sandbox_evaluate
-
 
 def route_sandbox_evaluate(state: CycleState) -> str:  # noqa: PLR0911, C901
     status = getattr(state, "status", None)
+    current_phase = getattr(state, "current_phase", None)
+    from src.enums import WorkPhase
     from src.utils import logger
-    logger.info(f"[ROUTER] route_sandbox_evaluate: status={status}")
+    logger.info(f"[ROUTER] route_sandbox_evaluate: status={status}, phase={current_phase}")
 
     if getattr(state.test, "tdd_phase", None) == "red":
         if status == FlowStatus.FAILED:
@@ -58,41 +42,35 @@ def route_sandbox_evaluate(state: CycleState) -> str:  # noqa: PLR0911, C901
         logger.info("[ROUTER] route_sandbox_evaluate -> failed (status=FAILED)")
         return "failed"
 
-    if status == FlowStatus.COMPLETED:
-        logger.info("[ROUTER] route_sandbox_evaluate -> end (status=COMPLETED)")
-        return "end"
-
     if status == FlowStatus.TDD_FAILED:
         logger.info("[ROUTER] route_sandbox_evaluate -> impl_coder_node (status=TDD_FAILED)")
         return "impl_coder_node"
 
-    if status == FlowStatus.READY_FOR_SELF_CRITIC:
-        if state.self_critic_completed:
-            logger.info("[ROUTER] route_sandbox_evaluate -> auditor (Self-critic already completed)")
-            return "auditor"
-        logger.info("[ROUTER] route_sandbox_evaluate -> self_critic_node (status=READY_FOR_SELF_CRITIC)")
+    if current_phase == WorkPhase.CODER:
+        logger.info("[ROUTER] route_sandbox_evaluate -> self_critic_node (phase=CODER)")
         return "self_critic_node"
 
-    if status == FlowStatus.READY_FOR_FINAL_CRITIC:
-        logger.info("[ROUTER] route_sandbox_evaluate -> final_critic (status=READY_FOR_FINAL_CRITIC)")
+    if current_phase == WorkPhase.SELF_CRITIC:
+        logger.info("[ROUTER] route_sandbox_evaluate -> auditor (phase=SELF_CRITIC)")
+        return "auditor"
+
+    if current_phase == WorkPhase.AUDIT:
+        logger.info("[ROUTER] route_sandbox_evaluate -> auditor (phase=AUDIT)")
+        return "auditor"
+
+    if current_phase == WorkPhase.REFACTORING:
+        logger.info("[ROUTER] route_sandbox_evaluate -> final_critic (phase=REFACTORING)")
         return "final_critic"
 
-    if status == FlowStatus.READY_FOR_AUDIT:
-        if getattr(state.committee, "is_refactoring", False) or getattr(state, "final_fix", False):
-            logger.info("[ROUTER] route_sandbox_evaluate -> final_critic (Audit logic)")
-            return "final_critic"
-        logger.info("[ROUTER] route_sandbox_evaluate -> auditor (status=READY_FOR_AUDIT)")
-        return "auditor"
+    if current_phase == WorkPhase.FINAL_CRITIC:
+        logger.info("[ROUTER] route_sandbox_evaluate -> approve (phase=FINAL_CRITIC)")
+        return "approve"
 
     if status == FlowStatus.WAITING_FOR_JULES:
         logger.info("[ROUTER] route_sandbox_evaluate -> impl_coder_node (status=WAITING_FOR_JULES)")
         return "impl_coder_node"
 
-    if status == FlowStatus.POST_AUDIT_REFACTOR:
-        logger.info("[ROUTER] route_sandbox_evaluate -> impl_coder_node (status=POST_AUDIT_REFACTOR)")
-        return "impl_coder_node"
-
-    logger.info(f"[ROUTER] route_sandbox_evaluate -> default impl_coder_node (status={status})")
+    logger.info(f"[ROUTER] route_sandbox_evaluate -> default impl_coder_node (status={status}, phase={current_phase})")
     return "impl_coder_node"
 
 
@@ -112,11 +90,20 @@ def route_auditor(state: CycleState) -> str:
 
 
 def route_committee(state: CycleState) -> str:
+    from src.enums import WorkPhase
     """Routes after CommitteeUseCase executes, based on the returned status."""
     status = getattr(state, "status", None)
 
     if status == FlowStatus.NEXT_AUDITOR:
         return "next_auditor"
+    if getattr(state, "current_phase", None) == WorkPhase.REFACTORING:
+        return "refactor_node"
+    if getattr(state, "current_phase", None) == WorkPhase.FINAL_CRITIC:
+        return "final_critic"
+    if status == FlowStatus.COMPLETED and getattr(state, "current_phase", None) == WorkPhase.REFACTORING:
+        return "refactor_node"
+    if status == FlowStatus.COMPLETED and getattr(state, "current_phase", None) == WorkPhase.FINAL_CRITIC:
+        return "final_critic"
     if status == FlowStatus.POST_AUDIT_REFACTOR:
         return "refactor_node"
     if status == FlowStatus.READY_FOR_AUDIT:

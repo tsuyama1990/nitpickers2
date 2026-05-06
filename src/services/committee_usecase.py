@@ -5,7 +5,7 @@ from typing import Any
 from rich.console import Console
 
 from src.config import settings
-from src.enums import FlowStatus
+from src.enums import FlowStatus, WorkPhase
 from src.state import CycleState
 
 console = Console()
@@ -50,7 +50,7 @@ class CommitteeUseCase:
             console.print(
                 "[bold green]All Auditors Approved! Transitioning to Final Refactoring...[/bold green]"
             )
-            return {"status": FlowStatus.POST_AUDIT_REFACTOR}
+            return {"status": FlowStatus.COMPLETED, "current_phase": WorkPhase.REFACTORING}
 
         if j < settings.REVIEWS_PER_AUDITOR:
             next_rev = j + 1
@@ -116,9 +116,9 @@ class CommitteeUseCase:
         # --- Final Fallback: Budget Exhausted ---
         # If we reach here and final_fix is ALREADY True, it means we've already done the polish.
         # We must transition to the next phase (final_critic or completed).
-        if getattr(state, "final_fix", False):
+        if state.current_phase == WorkPhase.FINAL_CRITIC:
             console.print("[bold green]Final Polish complete. Moving to Final Review.[/bold green]")
-            return {"status": FlowStatus.READY_FOR_AUDIT}
+            return {"status": FlowStatus.COMPLETED}
 
         round_count = (
             state.current_auditor_index - 1
@@ -133,7 +133,7 @@ class CommitteeUseCase:
             }
         )
         return {
-            "final_fix": True,
+            "current_phase": WorkPhase.FINAL_CRITIC,
             "committee": committee_update,
             "status": FlowStatus.RETRY_FIX,
             "last_feedback_time": time.time(),

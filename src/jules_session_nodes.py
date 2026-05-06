@@ -68,7 +68,7 @@ class JulesSessionNodes:
                     data = response.json()
 
                     new_jules_state = data.get("state")
-                    
+
                     # --- NEW: Activity-Aware Watchdog Update ---
                     # We fetch activities to check for progress even if the state string (e.g. IN_PROGRESS) hasn't changed.
                     activities = await self.client.list_activities(state.session_url)
@@ -77,10 +77,10 @@ class JulesSessionNodes:
                     if state.jules_state != new_jules_state or activity_count > state.last_activity_count:
                         if state.jules_state != new_jules_state:
                             state.previous_jules_state = state.jules_state
-                        
+
                         state.last_jules_state_change_time = now()  # reset stale clock on state change OR activity
                         logger.debug(f"Watchdog reset: State={new_jules_state}, ActivityCount={activity_count}")
-                    
+
                     state.jules_state = new_jules_state
                     state.raw_data = data
                     state.last_activity_count = activity_count
@@ -175,7 +175,7 @@ class JulesSessionNodes:
                         pr_found = any(
                             "pullRequest" in output for output in data.get("outputs", [])
                         )
-                        
+
                         # NEW: Also scan activities for a PR (sometimes it's only in progressUpdated events)
                         if not pr_found:
                             logger.info(f"PR not in outputs for FAILED session {state.session_name}. Scanning activities...")
@@ -546,7 +546,7 @@ class JulesSessionNodes:
                                 state.raw_data = fresh_data
                                 state.status = SessionStatus.SUCCESS
                                 return self._compute_diff(_state_in, state)
-                    
+
                     # NEW: Deep scan activities if outputs are still empty
                     logger.debug(f"PR not in fresh outputs for {state.session_name}. Scanning activities...")
                     activities = await self.client.list_activities(state.session_url)

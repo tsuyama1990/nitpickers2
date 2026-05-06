@@ -96,7 +96,7 @@ class CoderUseCase:
             SHOULD_REUSE_STATUSES = {
                 FlowStatus.RETRY_FIX,
                 FlowStatus.REJECTED,
-                FlowStatus.POST_AUDIT_REFACTOR,
+
                 FlowStatus.TDD_FAILED,
                 FlowStatus.START,
                 None,
@@ -108,8 +108,7 @@ class CoderUseCase:
                     result = reuse_result
 
         # --- B2. Special Case: Resuming a session that is already COMPLETED ---
-        if not result and cycle_manifest and cycle_manifest.jules_session_id and cycle_manifest.jules_session_id != "null":
-            if state.status in {FlowStatus.START, None}:
+        if not result and cycle_manifest and cycle_manifest.jules_session_id and cycle_manifest.jules_session_id != "null" and state.status in {FlowStatus.START, None}:
                 # If we are in START and have a session ID, it means we are resuming.
                 # If the session is already COMPLETED, we should just get the result.
                 session_state = await self.jules.get_session_state(cycle_manifest.jules_session_id)
@@ -164,9 +163,9 @@ class CoderUseCase:
 
         # --- D. Post-Session Processing (Success Handling & Self-Critic) ---
         if result and (result.get("status") == "success" or result.get("pr_url")):
-            is_post_audit_refactor = state.status in {
-                FlowStatus.POST_AUDIT_REFACTOR,
-                FlowStatus.READY_FOR_FINAL_CRITIC,
+            is_post_audit_refactor = state.current_phase in {
+                WorkPhase.REFACTORING,
+                WorkPhase.FINAL_CRITIC,
             }
 
             if cycle_manifest:
@@ -209,14 +208,8 @@ class CoderUseCase:
             # Reset self-critic flag if this is a major implementation.
             # We preserve it if we are fixing a structural (TDD) error or an auditor rejection
             # to avoid redundant self-critic reviews and proceed directly to the next phase.
-            preserve_flag_statuses = {FlowStatus.TDD_FAILED, FlowStatus.RETRY_FIX}
-            new_self_critic_completed = state.self_critic_completed if state.status in preserve_flag_statuses else False
 
-            session_update = (
-                state.session.model_copy(update={**session_updates, "self_critic_completed": new_self_critic_completed})
-                if session_updates or new_self_critic_completed != state.self_critic_completed
-                else state.session
-            )
+            session_update = state.session.model_copy(update=session_updates) if session_updates else state.session
 
             # --- Final Verification: If we reused a session, ensure the commit hash is updated in state ---
             if branch_val and not state.last_processed_commit:
@@ -230,12 +223,11 @@ class CoderUseCase:
                     pr_url=pr_val,
                     branch_name=branch_val,
                     status=target_status, # Persist status for resume support
-                    self_critic_completed=new_self_critic_completed
                 )
 
             # --- Explicit PR Checkpoint Notification ---
             if pr_val:
-                if state.status == FlowStatus.POST_AUDIT_REFACTOR:
+                if state.current_phase == WorkPhase.REFACTORING:
                     checkpoint_label = "refactoring/polish"
                 elif state.status == FlowStatus.RETRY_FIX:
                     checkpoint_label = "audit feedback response"
@@ -252,7 +244,6 @@ class CoderUseCase:
                 "session": session_update,
                 "branch_name": branch_val,
                 "pr_url": pr_val,
-                "self_critic_completed": new_self_critic_completed,
             }
 
         # --- E. Failure Handling ---
@@ -271,7 +262,7 @@ class CoderUseCase:
         cycle_manifest: CycleManifest | None,
     ) -> str:
         """Assemble the Jules instruction prompt, injecting feedback when retrying."""
-        if state.status == FlowStatus.POST_AUDIT_REFACTOR:
+        if state.current_phase == WorkPhase.REFACTORING:
             instruction = settings.get_prompt_content(
                 settings.template_files.post_audit_refactor_instruction
             )
@@ -327,7 +318,7 @@ class CoderUseCase:
 
         return str(instruction)
 
-    async def _try_reuse_session(  # noqa: C901
+    async def _try_reuse_session(  # noqa: C901, PLR0911
         self, cycle_manifest: CycleManifest | None, state: CycleState
     ) -> dict[str, Any] | None:
         """Attempt to send audit feedback to an existing session instead of starting fresh."""
@@ -335,7 +326,7 @@ class CoderUseCase:
         REUSABLE_STATUSES = {
             FlowStatus.RETRY_FIX,
             FlowStatus.REJECTED,
-            FlowStatus.POST_AUDIT_REFACTOR,
+
             FlowStatus.TDD_FAILED,
             FlowStatus.START,
             FlowStatus.READY_FOR_AUDIT,  # Safeguard for loopbacks
@@ -372,7 +363,7 @@ class CoderUseCase:
             session_state = "COMPLETED"
 
         is_cold_start = state.status in {FlowStatus.START, None}
-        is_post_refactor = state.status == FlowStatus.POST_AUDIT_REFACTOR
+        is_post_refactor = state.current_phase == WorkPhase.REFACTORING
 
         if is_cold_start:
             action_label = "cold start resume"
@@ -388,7 +379,7 @@ class CoderUseCase:
         )
 
         # For Post-Audit Refactor, we send the instruction as a message (without wrapping in audit feedback title)
-        if state.status == FlowStatus.POST_AUDIT_REFACTOR:
+        if state.current_phase == WorkPhase.REFACTORING:
             return await self._send_audit_feedback_to_session(
                 cycle_manifest.jules_session_id,
                 self._build_instruction(state.cycle_id, None, state, cycle_manifest),
@@ -508,7 +499,7 @@ class CoderUseCase:
                         # In critic phase, it's possible no changes were needed.
                         # We don't force a push here, but we update the state to the current commit.
                         logger.info(f"[CRITIC] No new commits in critic phase on {branch_val}. This is acceptable.")
-                
+
                 # Always capture the latest state after the phase completes
                 await self._update_last_processed_commit(state, result.get("branch_name"))
         except Exception as e:
@@ -528,7 +519,7 @@ class CoderUseCase:
             logger.info(f"Captured last_processed_commit for {branch_name}: {commit}")
             state.last_processed_commit = commit
 
-    async def _send_audit_feedback_to_session(
+    async def _send_audit_feedback_to_session(  # noqa: C901
         self, session_id: str, feedback: str, state: CycleState, wrap: bool = True
     ) -> dict[str, Any] | None:
         """Send audit feedback to existing Jules session and wait for new PR.
@@ -577,7 +568,8 @@ class CoderUseCase:
                             current_commit = await self.jules.get_latest_branch_commit(branch_val)
                             if current_commit == state.last_processed_commit:
                                 # Still no push after nudge? For audit rejections, this is a failure.
-                                raise Exception("Jules refused to push new commits after audit rejection fallback.")
+                                err = RuntimeError("Jules refused to push new commits after audit rejection fallback.")
+                                raise err  # noqa: TRY301
                 return dict(result)
 
             console.print(

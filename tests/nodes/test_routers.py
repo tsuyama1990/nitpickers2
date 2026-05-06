@@ -1,6 +1,6 @@
 from src.config import settings
 from src.domain_models import AuditResult
-from src.enums import FlowStatus
+from src.enums import FlowStatus, WorkPhase
 from src.nodes.routers import route_auditor, route_final_critic, route_sandbox_evaluate
 from src.state import CycleState
 
@@ -14,14 +14,14 @@ def test_route_sandbox_evaluate_failed() -> None:
 def test_route_sandbox_evaluate_refactoring() -> None:
     state = CycleState(cycle_id="01")
     state.status = FlowStatus.READY_FOR_AUDIT
-    state.committee.is_refactoring = True
+    state.current_phase = WorkPhase.REFACTORING
     assert route_sandbox_evaluate(state) == "final_critic"
 
 
 def test_route_sandbox_evaluate_auditor() -> None:
     state = CycleState(cycle_id="01")
     state.status = FlowStatus.READY_FOR_AUDIT
-    state.committee.is_refactoring = False
+    state.current_phase = WorkPhase.AUDIT
     assert route_sandbox_evaluate(state) == "auditor"
 
 

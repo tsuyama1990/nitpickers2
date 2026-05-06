@@ -64,7 +64,7 @@ class JulesApiClient:
         }
         # Only add x-goog-api-key if we don't use query params (some environments prefer query params)
         headers["x-goog-api-key"] = self._api_key
-        
+
         # Add model version header if configured
         if settings.jules.model:
             headers["x-goog-agent-version"] = settings.jules.model
@@ -140,17 +140,17 @@ class JulesApiClient:
 
         try:
             response = await _do_req(url)
-            
+
             # 404 Handling: Try various workarounds
             if response.status_code == 404:
                 logger.info(f"404 Not Found for {url}. Attempting workarounds...")
-                
+
                 # Workaround 1: Trailing slash (sometimes required for collections)
                 if not url.endswith("/") and "/" not in endpoint:
                     url_slash = f"{url}/"
                     logger.debug(f"Retry 1: Trailing slash -> {url_slash}")
                     response = await _do_req(url_slash)
-                
+
                 # Workaround 2: Key in query parameter (fixes some proxy/auth issues)
                 if response.status_code == 404 and "key=" not in str(url):
                     separator = "&" if "?" in str(url) else "?"

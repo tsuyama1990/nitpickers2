@@ -27,11 +27,8 @@ class CoderCriticNodes:
             logger.error(f"[CRITIC] Failed: No session ID for cycle {cycle_id}")
             return {"status": FlowStatus.FAILED, "error": "No session ID for critic phase"}
 
-        is_final = (
-            state.status == FlowStatus.READY_FOR_FINAL_CRITIC
-            or getattr(state.committee, "is_refactoring", False)
-            or getattr(state, "final_fix", False)
-        )
+        from src.enums import WorkPhase
+        is_final = (state.current_phase == WorkPhase.FINAL_CRITIC)
         result = await usecase.run_critic_phase(state, cycle_id, session_id, is_final=is_final)
 
         if not result:
@@ -47,30 +44,30 @@ class CoderCriticNodes:
                 "pr_url": state.session.pr_url,
             }
 
-        # Preserve PR and branch info and explicitly set self_critic_completed to True
+        # Preserve PR and branch info
         pr_url = result.get("pr_url") or state.session.pr_url
         branch_name = result.get("branch_name") or state.session.branch_name
 
         session_update = state.session.model_copy(
             update={
-                "pr_url": pr_url, 
+                "pr_url": pr_url,
                 "branch_name": branch_name,
-                "self_critic_completed": True
             }
         )
 
-        # If it's a final polish or post-audit refactor, we are COMPLETED.
-        new_status = FlowStatus.COMPLETED if is_final else FlowStatus.READY_FOR_AUDIT
+        new_status = FlowStatus.COMPLETED
 
         # --- Explicit PR Checkpoint Notification ---
         if pr_url:
             phase_type = "final self critic review" if is_final else "selfcritic review"
             console.print(f"[bold green]PR Point [{phase_type}]:[/bold green] {pr_url}")
 
+        next_phase = WorkPhase.FINAL_CRITIC if is_final else WorkPhase.SELF_CRITIC
+
         return {
             "status": new_status,
             "session": session_update,
             "branch_name": branch_name,
             "pr_url": pr_url,
-            "self_critic_completed": True,
+            "current_phase": next_phase,
         }
