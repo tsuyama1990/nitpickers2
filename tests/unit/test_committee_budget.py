@@ -12,7 +12,7 @@ from unittest.mock import patch
 import pytest
 
 from src.domain_models import AuditResult
-from src.enums import FlowStatus
+from src.enums import FlowStatus, WorkPhase
 from src.nodes.routers import route_committee
 from src.state import AuditState, CommitteeState, CycleState
 
@@ -41,7 +41,6 @@ def _make_state(
     return CycleState(
         cycle_id="01",
         status=status,
-
         committee=committee,
         audit=audit,
     )

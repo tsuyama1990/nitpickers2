@@ -19,7 +19,6 @@ class CoderNodes:
         result["test"] = test_update
         return result
 
-
     async def impl_coder_node(self, state: CycleState) -> dict[str, Any]:
         from src.enums import WorkPhase
         from src.services.coder_usecase import CoderUseCase

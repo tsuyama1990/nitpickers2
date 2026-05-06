@@ -21,14 +21,17 @@ class CoderCriticNodes:
         cycle_id = state.cycle_id
         session_id = state.session.jules_session_name
 
-        logger.info(f"[CRITIC] Starting self-critic phase for cycle {cycle_id} on session {session_id}")
+        logger.info(
+            f"[CRITIC] Starting self-critic phase for cycle {cycle_id} on session {session_id}"
+        )
 
         if not session_id:
             logger.error(f"[CRITIC] Failed: No session ID for cycle {cycle_id}")
             return {"status": FlowStatus.FAILED, "error": "No session ID for critic phase"}
 
         from src.enums import WorkPhase
-        is_final = (state.current_phase == WorkPhase.FINAL_CRITIC)
+
+        is_final = state.current_phase == WorkPhase.FINAL_CRITIC
         result = await usecase.run_critic_phase(state, cycle_id, session_id, is_final=is_final)
 
         if not result:

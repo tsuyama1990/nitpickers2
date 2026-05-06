@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import sys
 import time
@@ -25,10 +26,13 @@ sys.modules["langgraph"] = mock
 sys.modules["langgraph.graph"] = mock
 sys.modules["langgraph.prebuilt"] = mock
 
-from src.services.project_setup.permission_manager import PermissionManager
+from src.services.project_setup.permission_manager import PermissionManager  # noqa: E402
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
-def create_large_dir_structure(base_path, depth=3, width=5):
+def create_large_dir_structure(base_path: Path, depth: int = 3, width: int = 5) -> None:
     if depth == 0:
         return
     base_path.mkdir(parents=True, exist_ok=True)
@@ -39,43 +43,47 @@ def create_large_dir_structure(base_path, depth=3, width=5):
             file = base_path / f"file_{depth}_{i}_{j}.txt"
             file.write_text("test content")
 
-async def run_benchmark():
+
+async def run_benchmark() -> None:
     test_dir = Path("perf_test_dir")
-    if test_dir.exists():
-        import shutil
+    # For a benchmark script, synchronous Path methods are acceptable
+    import shutil
+
+    if test_dir.exists():  # noqa: ASYNC240
         shutil.rmtree(test_dir)
 
-    print("Creating large directory structure...")
+    logger.info("Creating large directory structure...")
     # depth=3, width=6 => ~1813 items
     create_large_dir_structure(test_dir, depth=3, width=6)
 
     manager = PermissionManager()
 
-    with patch("src.services.project_setup.permission_manager.os.chown"), \
-         patch("src.services.project_setup.permission_manager.os.chmod"), \
-         patch("src.services.project_setup.permission_manager.logger"), \
-         patch.dict(os.environ, {"HOST_UID": "1000", "HOST_GID": "1000"}):
-
-        print("Starting benchmark...")
+    with (
+        patch("src.services.project_setup.permission_manager.os.chown"),
+        patch("src.services.project_setup.permission_manager.os.chmod"),
+        patch("src.services.project_setup.permission_manager.logger"),
+        patch.dict(os.environ, {"HOST_UID": "1000", "HOST_GID": "1000"}),
+    ):
+        logger.info("Starting benchmark...")
         # Warm up
         await manager.fix_permissions(test_dir)
 
         # Measure
-        total_duration = 0
+        total_duration: float = 0.0
         iterations = 5
         for i in range(iterations):
             start_time = time.perf_counter()
             await manager.fix_permissions(test_dir)
             end_time = time.perf_counter()
             duration = end_time - start_time
-            print(f"Iteration {i+1}: {duration:.4f} seconds")
+            logger.info(f"Iteration {i + 1}: {duration:.4f} seconds")
             total_duration += duration
 
     avg_duration = total_duration / iterations
-    print(f"Average benchmark took: {avg_duration:.4f} seconds")
+    logger.info(f"Average benchmark took: {avg_duration:.4f} seconds")
 
-    import shutil
     shutil.rmtree(test_dir)
+
 
 if __name__ == "__main__":
     asyncio.run(run_benchmark())

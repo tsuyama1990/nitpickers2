@@ -587,13 +587,6 @@ class Settings(BaseSettings):
     ast_analyzer: ASTAnalyzerConfig = Field(default_factory=ASTAnalyzerConfig)
     tracing: LangSmithConfig = Field(default_factory=LangSmithConfig)
     dispatcher: DispatcherConfig = Field(default_factory=DispatcherConfig)
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_nested_delimiter="__",
-        extra="ignore",
-        env_prefix="",
-        populate_by_name=True,
-    )
 
     @property
     def tracing_service(self) -> "Any":
@@ -633,6 +626,7 @@ class Settings(BaseSettings):
         extra="ignore",
         env_file=".env",
         env_file_encoding="utf-8",
+        populate_by_name=True,
     )
 
     @model_validator(mode="after")

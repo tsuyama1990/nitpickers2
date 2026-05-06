@@ -127,8 +127,7 @@ class JulesApiClient:
 
         async def _do_req(target_url: str, use_h2: bool = True) -> httpx.Response:
             async with httpx.AsyncClient(
-                timeout=settings.jules.request_timeout,
-                http2=use_h2
+                timeout=settings.jules.request_timeout, http2=use_h2
             ) as client:
                 return await client.request(
                     method,

@@ -111,7 +111,7 @@ class LLMReviewer:
         for attempt in range(3):
             try:
                 if attempt > 0:
-                    delay = (2 ** attempt) * 5  # 10s, 20s
+                    delay = (2**attempt) * 5  # 10s, 20s
                     logger.info(f"Retrying LLM review in {delay}s...")
                     await anyio.sleep(delay)
 
@@ -210,7 +210,7 @@ class LLMReviewer:
         for attempt in range(3):
             try:
                 if attempt > 0:
-                    delay = (2 ** attempt) * 5
+                    delay = (2**attempt) * 5
                     logger.info(f"Retrying UAT failure diagnosis in {delay}s...")
                     await anyio.sleep(delay)
 

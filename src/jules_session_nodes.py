@@ -74,12 +74,19 @@ class JulesSessionNodes:
                     activities = await self.client.list_activities(state.session_url)
                     activity_count = len(activities)
 
-                    if state.jules_state != new_jules_state or activity_count > state.last_activity_count:
+                    if (
+                        state.jules_state != new_jules_state
+                        or activity_count > state.last_activity_count
+                    ):
                         if state.jules_state != new_jules_state:
                             state.previous_jules_state = state.jules_state
 
-                        state.last_jules_state_change_time = now()  # reset stale clock on state change OR activity
-                        logger.debug(f"Watchdog reset: State={new_jules_state}, ActivityCount={activity_count}")
+                        state.last_jules_state_change_time = (
+                            now()
+                        )  # reset stale clock on state change OR activity
+                        logger.debug(
+                            f"Watchdog reset: State={new_jules_state}, ActivityCount={activity_count}"
+                        )
 
                     state.jules_state = new_jules_state
                     state.raw_data = data
@@ -178,7 +185,9 @@ class JulesSessionNodes:
 
                         # NEW: Also scan activities for a PR (sometimes it's only in progressUpdated events)
                         if not pr_found:
-                            logger.info(f"PR not in outputs for FAILED session {state.session_name}. Scanning activities...")
+                            logger.info(
+                                f"PR not in outputs for FAILED session {state.session_name}. Scanning activities..."
+                            )
                             try:
                                 activities = await self.client.list_activities(state.session_url)
                                 for act in activities:
@@ -189,12 +198,16 @@ class JulesSessionNodes:
                                             outputs = act[key].get("outputs", [])
                                             if any("pullRequest" in o for o in outputs):
                                                 pr_found = True
-                                                logger.info(f"Found PR in {key} activity for FAILED session!")
+                                                logger.info(
+                                                    f"Found PR in {key} activity for FAILED session!"
+                                                )
                                                 break
                                     if pr_found:
                                         break
                             except Exception as e:
-                                logger.debug(f"Failed to scan activities for PR in FAILED session: {e}")
+                                logger.debug(
+                                    f"Failed to scan activities for PR in FAILED session: {e}"
+                                )
 
                         if pr_found:
                             logger.info(
@@ -377,7 +390,7 @@ class JulesSessionNodes:
                     if attempt == max_retries - 1:
                         raise
                     logger.warning(f"Manager Agent attempt {attempt + 1} failed: {e}. Retrying...")
-                    await asyncio.sleep(2 ** attempt)
+                    await asyncio.sleep(2**attempt)
 
             from src.config import settings
 
@@ -499,89 +512,80 @@ class JulesSessionNodes:
         state.status = SessionStatus.CHECKING_PR
         return self._compute_diff(_state_in, state)
 
-    async def check_pr(self, _state_in: JulesSessionState) -> dict[str, Any]:
-        """Check for PR in session outputs.
-
-        Per Jules API spec, SessionOutput is the only place where a pullRequest
-        can appear. Activity types are:
-          agentMessaged, userMessaged, planGenerated, planApproved,
-          progressUpdated, sessionCompleted, sessionFailed
-        None of these contain a pullRequest field.
-        """
-        state = _state_in.model_copy(deep=True)
-
-        if not state.raw_data:
-            state.status = SessionStatus.REQUESTING_PR_CREATION
-            return self._compute_diff(_state_in, state)
-
-        # PR can ONLY be in session outputs (Jules API spec)
-        for output in state.raw_data.get("outputs", []):
+    def _extract_pr_from_outputs(
+        self, outputs: list[dict[str, Any]]
+    ) -> tuple[str | None, str | None]:
+        """Helper to find PR info in a list of session outputs."""
+        for output in outputs:
             if "pullRequest" in output:
                 pr = output["pullRequest"]
                 pr_url = pr.get("url")
                 if pr_url:
+                    return pr_url, pr.get("headRef")
+        return None, None
+
+    async def _scan_activities_for_pr(self, session_url: str) -> tuple[str | None, str | None]:
+        """Deep scan activities for PR URL (fallback)."""
+        try:
+            activities = await self.client.list_activities(session_url)
+            for act in activities:
+                for key in ["progressUpdated", "sessionCompleted", "agentMessaged"]:
+                    if key not in act:
+                        continue
+                    if key == "agentMessaged":
+                        msg = act["agentMessaged"].get("agentMessage", "")
+                        if "github.com/" in msg and "/pull/" in msg:
+                            import re
+
+                            urls = re.findall(r"https://github\.com/[\w\-/]+/pull/\d+", msg)
+                            if urls:
+                                return urls[0], None
+                    else:
+                        outputs = act[key].get("outputs", [])
+                        pr_url, head_ref = self._extract_pr_from_outputs(outputs)
+                        if pr_url:
+                            return pr_url, head_ref
+        except Exception as e:
+            logger.warning(f"Activity scan failed: {e}")
+        return None, None
+
+    async def check_pr(self, _state_in: JulesSessionState) -> dict[str, Any]:
+        """Check for PR in session outputs."""
+        state = _state_in.model_copy(deep=True)
+        if not state.raw_data:
+            state.status = SessionStatus.REQUESTING_PR_CREATION
+            return self._compute_diff(_state_in, state)
+
+        # 1. Check existing outputs
+        pr_url, branch = self._extract_pr_from_outputs(state.raw_data.get("outputs", []))
+        if pr_url:
+            console.print(f"\n[bold green]PR Created: {pr_url}[/bold green]")
+            state.pr_url, state.branch_name = pr_url, branch
+            state.status = SessionStatus.SUCCESS
+            return self._compute_diff(_state_in, state)
+
+        # 2. Refresh session data
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.get(
+                state.session_url, headers=self.client._get_headers(), timeout=10.0
+            )
+            if resp.status_code == httpx.codes.OK:
+                fresh_data = resp.json()
+                pr_url, branch = self._extract_pr_from_outputs(fresh_data.get("outputs", []))
+                if pr_url:
                     console.print(f"\n[bold green]PR Created: {pr_url}[/bold green]")
-                    state.pr_url = pr_url
-                    state.branch_name = pr.get("headRef")
-                    state.status = SessionStatus.SUCCESS
+                    state.pr_url, state.branch_name = pr_url, branch
+                    state.raw_data, state.status = fresh_data, SessionStatus.SUCCESS
                     return self._compute_diff(_state_in, state)
 
-        # Re-fetch session to get fresh outputs (raw_data may be stale)
-        try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                resp = await client.get(
-                    state.session_url, headers=self.client._get_headers(), timeout=10.0
-                )
-                if resp.status_code == httpx.codes.OK:
-                    fresh_data = resp.json()
-                    for output in fresh_data.get("outputs", []):
-                        if "pullRequest" in output:
-                            pr = output["pullRequest"]
-                            pr_url = pr.get("url")
-                            if pr_url:
-                                console.print(f"\n[bold green]PR Created: {pr_url}[/bold green]")
-                                logger.info(f"Found PR in fresh session outputs: {pr_url}")
-                                state.pr_url = pr_url
-                                state.branch_name = pr.get("headRef")
-                                state.raw_data = fresh_data
-                                state.status = SessionStatus.SUCCESS
-                                return self._compute_diff(_state_in, state)
+        # 3. Fallback: Deep scan activities
+        logger.debug(f"PR not in outputs for {state.session_name}. Scanning activities...")
+        pr_url, branch = await self._scan_activities_for_pr(state.session_url)
+        if pr_url:
+            state.pr_url, state.branch_name = pr_url, branch
+            state.status = SessionStatus.SUCCESS
+            return self._compute_diff(_state_in, state)
 
-                    # NEW: Deep scan activities if outputs are still empty
-                    logger.debug(f"PR not in fresh outputs for {state.session_name}. Scanning activities...")
-                    activities = await self.client.list_activities(state.session_url)
-                    for act in activities:
-                        for key in ["progressUpdated", "sessionCompleted", "agentMessaged"]:
-                            if key in act:
-                                # agentMessaged might contain the URL in text, progressUpdated/sessionCompleted have outputs
-                                if key == "agentMessaged":
-                                    # Fallback for when Jules mentions the PR URL but API object is missing
-                                    msg = act["agentMessaged"].get("agentMessage", "")
-                                    if "github.com/" in msg and "/pull/" in msg:
-                                        import re
-                                        urls = re.findall(r'https://github\.com/[\w\-/]+/pull/\d+', msg)
-                                        if urls:
-                                            pr_url = urls[0]
-                                            logger.info(f"Extracted PR URL from agent message: {pr_url}")
-                                            state.pr_url = pr_url
-                                            state.status = SessionStatus.SUCCESS
-                                            return self._compute_diff(_state_in, state)
-                                else:
-                                    outputs = act[key].get("outputs", [])
-                                    for o in outputs:
-                                        if "pullRequest" in o:
-                                            pr = o["pullRequest"]
-                                            pr_url = pr.get("url")
-                                            if pr_url:
-                                                logger.info(f"Found PR in {key} activity outputs: {pr_url}")
-                                                state.pr_url = pr_url
-                                                state.branch_name = pr.get("headRef")
-                                                state.status = SessionStatus.SUCCESS
-                                                return self._compute_diff(_state_in, state)
-        except Exception as e:
-            logger.debug(f"Failed to re-fetch session for PR check: {e}")
-
-        # No PR found
         console.print("[yellow]Session Completed but NO PR found.[/yellow]")
         state.status = SessionStatus.REQUESTING_PR_CREATION
         return self._compute_diff(_state_in, state)

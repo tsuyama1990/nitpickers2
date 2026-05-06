@@ -50,7 +50,10 @@ class CommitteeUseCase:
             console.print(
                 "[bold green]All Auditors Approved! Transitioning to Final Refactoring...[/bold green]"
             )
-            return {"status": FlowStatus.COMPLETED, "current_phase": WorkPhase.REFACTORING}
+            return {
+                "status": FlowStatus.POST_AUDIT_REFACTOR,
+                "current_phase": WorkPhase.REFACTORING,
+            }
 
         if j < settings.REVIEWS_PER_AUDITOR:
             next_rev = j + 1

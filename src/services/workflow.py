@@ -4,7 +4,7 @@ import shutil
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import anyio
 from langchain_core.runnables import RunnableConfig
@@ -436,8 +436,8 @@ class WorkflowService:
         console.print(SuccessMessages.cycle_complete(cycle_id, f"{int(cycle_id) + 1:02}"))
         return True
 
-    def _get_llm_optimized_state(self, state: CycleState | dict[str, Any]) -> dict[str, Any]:
-        """Truncates the state to prevent RCA context overflow."""
+    def _serialize_state_data(self, state: CycleState | dict[str, Any]) -> dict[str, Any]:
+        """Helper to serialize state into a dict."""
         import json
 
         def pydantic_encoder(obj: Any) -> Any:
@@ -447,20 +447,19 @@ class WorkflowService:
                 return obj.dict()
             if hasattr(obj, "value"):  # Enum
                 return obj.value
-            raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+            msg = f"Object of type {type(obj).__name__} is not JSON serializable"
+            raise TypeError(msg)
 
         try:
             if hasattr(state, "model_dump"):
-                # CycleState: serialize directly via Pydantic
-                state_data = state.model_dump(mode="json")
-            else:
-                # LangGraph dict with possible Pydantic sub-models
-                # Use json round-trip with fallback encoder
-                state_data = json.loads(json.dumps(state, default=pydantic_encoder))
+                return state.model_dump(mode="json")
+
+            # Use json round-trip with fallback encoder
+            return cast(dict[str, Any], json.loads(json.dumps(state, default=pydantic_encoder)))
         except Exception as e:
             logger.warning(f"Failed to fully serialize state: {e}")
             # Last-resort: stringify each value individually
-            state_data = {}
+            state_data: dict[str, Any] = {}
             if isinstance(state, dict):
                 for k, v in state.items():
                     try:
@@ -469,17 +468,19 @@ class WorkflowService:
                         state_data[k] = str(v)
             else:
                 state_data = {"error": "Serialization failed", "raw": str(state)}
+            return state_data
+
+    def _get_llm_optimized_state(self, state: CycleState | dict[str, Any]) -> dict[str, Any]:
+        """Truncates the state to prevent RCA context overflow."""
+        state_data = self._serialize_state_data(state)
 
         # Truncate messages to last 10 turns
-        if (
-            "session" in state_data
-            and state_data["session"]
-            and "messages" in state_data["session"]
-        ):
-            msgs = state_data["session"]["messages"]
-            if len(msgs) > 10:
-                state_data["session"]["messages"] = msgs[-10:]
-                state_data["session"]["_truncated"] = True
+        session = state_data.get("session")
+        if session and isinstance(session, dict):
+            msgs = session.get("messages")
+            if isinstance(msgs, list) and len(msgs) > 10:
+                session["messages"] = msgs[-10:]
+                session["_truncated"] = True
 
         return state_data
 

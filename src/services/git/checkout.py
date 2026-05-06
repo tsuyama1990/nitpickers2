@@ -9,6 +9,56 @@ from .base import BaseGitManager
 class GitCheckoutMixin(BaseGitManager):
     """Mixin for Git checkout and stash operations."""
 
+    async def _checkout_pr(self, target: str, force: bool) -> None:
+        """Helper to checkout a PR using gh CLI."""
+        try:
+            stdout, _, _, _ = await self.runner.run_command(
+                [
+                    self.gh_cmd,
+                    "pr",
+                    "view",
+                    target,
+                    "--json",
+                    "headRefName",
+                    "-q",
+                    ".headRefName",
+                ],
+                check=False,
+            )
+            head_branch = str(stdout).strip()
+            current = await self.get_current_branch()
+            if head_branch and current == head_branch:
+                logger.debug(f"Already on PR branch {head_branch}, skipping checkout.")
+                return
+        except Exception:
+            logger.debug("Failed to pre-check PR branch name, proceeding with checkout.")
+
+        cmd = [self.gh_cmd, "pr", "checkout", target]
+        if force:
+            cmd.append("--force")
+        await self.runner.run_command(cmd, check=True)
+
+    async def _checkout_branch(self, target: str, force: bool) -> None:
+        """Helper to checkout a regular branch."""
+        cmd = ["checkout", target]
+        if force:
+            cmd.append("-f")
+        try:
+            await self._run_git(cmd)
+        except Exception as e:
+            if "already used by worktree" in str(e):
+                logger.warning(
+                    f"Branch {target} is locked by another worktree. Falling back to detached checkout."
+                )
+                await self._run_git(["checkout", "--detach", target])
+            else:
+                raise
+
+        # IMPORTANT: Always try to sync with remote to get any freshly merged PRs
+        with contextlib.suppress(Exception):
+            await self._run_git(["fetch"])
+            await self.pull_changes()
+
     async def smart_checkout(self, target: str, is_pr: bool = False, force: bool = False) -> None:
         """Robust checkout that handles local changes by auto-committing."""
         await self._auto_commit_if_dirty()
@@ -22,46 +72,12 @@ class GitCheckoutMixin(BaseGitManager):
 
         try:
             if is_pr:
-                # For PRs, we check if the head branch is already checked out
-                try:
-                    stdout, _, _, _ = await self.runner.run_command(
-                        [self.gh_cmd, "pr", "view", target, "--json", "headRefName", "-q", ".headRefName"],
-                        check=False
-                    )
-                    head_branch = str(stdout).strip()
-                    current = await self.get_current_branch()
-                    if head_branch and current == head_branch:
-                        logger.debug(f"Already on PR branch {head_branch}, skipping checkout.")
-                        return
-                except Exception:
-                    pass
-
-                cmd = [self.gh_cmd, "pr", "checkout", target]
-                if force:
-                    cmd.append("--force")
-                await self.runner.run_command(cmd, check=True)
+                await self._checkout_pr(target, force)
             else:
-                cmd = ["checkout", target]
-                if force:
-                    cmd.append("-f")
-                try:
-                    await self._run_git(cmd)
-                except Exception as e:
-                    if "already used by worktree" in str(e):
-                        logger.warning(f"Branch {target} is locked by another worktree. Falling back to detached checkout.")
-                        await self._run_git(["checkout", "--detach", target])
-                    else:
-                        raise
-
-                # IMPORTANT: Always try to sync with remote to get any freshly merged PRs
-                with contextlib.suppress(Exception):
-                    await self._run_git(["fetch"])
-                    await self.pull_changes()
-
+                await self._checkout_branch(target, force)
         except Exception:
             logger.error(f"Failed to checkout '{target}'. Please check git status.")
             raise
-
 
     async def checkout_pr(self, pr_url: str) -> None:
         """Checks out the Pull Request branch using GitHub CLI."""
@@ -149,7 +165,9 @@ class GitCheckoutMixin(BaseGitManager):
             # If we are in an isolated worktree (self.cwd is set), discard conflicting local auto-commits
             # and reset hard to match the PR state exactly.
             if self.cwd:
-                logger.warning(f"Fallback: Hard resetting to origin/{branch} in worktree to resolve conflict.")
+                logger.warning(
+                    f"Fallback: Hard resetting to origin/{branch} in worktree to resolve conflict."
+                )
                 await self._run_git(["fetch", "origin", branch])
                 await self._run_git(["reset", "--hard", f"origin/{branch}"])
             else:

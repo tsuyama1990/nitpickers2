@@ -330,7 +330,9 @@ class JulesClient:
             # 1. First, always try to get the true remote commit since Jules pushes to remote
             try:
                 # Target refs/heads explicitly to avoid ambiguous ref matches (e.g. pull requests)
-                output = await git._run_git(["ls-remote", "origin", f"refs/heads/{branch_name}"], check=True)
+                output = await git._run_git(
+                    ["ls-remote", "origin", f"refs/heads/{branch_name}"], check=True
+                )
                 if output and output.strip():
                     # The first column is the commit hash
                     return output.strip().split()[0]

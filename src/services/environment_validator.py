@@ -139,19 +139,20 @@ class EnvironmentValidator:
         except Exception as e:
             logger.warning(f"Failed to verify/update .gitignore: {e}")
 
-        # CRITICAL: Untrack any previously-committed files under ephemeral directories.
-        # .gitignore alone does NOT protect already-tracked files — they stay in the index
-        # and their modifications cause `git checkout` to fail when switching branches.
+        import shutil
         import subprocess
+
+        git_bin = shutil.which("git") or "git"
         # Added .coverage to untrack list to prevent "overwrite by checkout" errors
         untrack_dirs = ["logs", ".nitpick", ".coverage"]
         for d in untrack_dirs:
             try:
                 # Force removal from index if tracked
                 subprocess.run(
-                    ["git", "rm", "-r", "--cached", "--ignore-unmatch", d],
+                    [git_bin, "rm", "-r", "--cached", "--ignore-unmatch", d],
                     capture_output=True,
                     cwd=str(Path.cwd()),
+                    check=False,
                 )
                 logger.info(f"Untracked '{d}' from Git index to prevent checkout conflicts.")
             except Exception as e:

@@ -9,6 +9,7 @@ def check_coder_outcome(state: CycleState) -> str:
     status = getattr(state, "status", None)
     current_phase = getattr(state, "current_phase", None)
     from src.utils import logger
+
     logger.info(f"[ROUTER] check_coder_outcome: status={status}, phase={current_phase}")
 
     if status in {FlowStatus.FAILED, FlowStatus.ARCHITECT_FAILED}:
@@ -20,14 +21,18 @@ def check_coder_outcome(state: CycleState) -> str:
     if status == FlowStatus.CODER_RETRY:
         return "impl_coder_node"
 
-    logger.info(f"[ROUTER] check_coder_outcome -> default sandbox (status={status}, phase={current_phase})")
+    logger.info(
+        f"[ROUTER] check_coder_outcome -> default sandbox (status={status}, phase={current_phase})"
+    )
     return settings.node_sandbox_evaluate
+
 
 def route_sandbox_evaluate(state: CycleState) -> str:  # noqa: PLR0911, C901
     status = getattr(state, "status", None)
     current_phase = getattr(state, "current_phase", None)
     from src.enums import WorkPhase
     from src.utils import logger
+
     logger.info(f"[ROUTER] route_sandbox_evaluate: status={status}, phase={current_phase}")
 
     if getattr(state.test, "tdd_phase", None) == "red":
@@ -70,7 +75,9 @@ def route_sandbox_evaluate(state: CycleState) -> str:  # noqa: PLR0911, C901
         logger.info("[ROUTER] route_sandbox_evaluate -> impl_coder_node (status=WAITING_FOR_JULES)")
         return "impl_coder_node"
 
-    logger.info(f"[ROUTER] route_sandbox_evaluate -> default impl_coder_node (status={status}, phase={current_phase})")
+    logger.info(
+        f"[ROUTER] route_sandbox_evaluate -> default impl_coder_node (status={status}, phase={current_phase})"
+    )
     return "impl_coder_node"
 
 
@@ -91,23 +98,20 @@ def route_auditor(state: CycleState) -> str:
 
 def route_committee(state: CycleState) -> str:
     from src.enums import WorkPhase
+
     """Routes after CommitteeUseCase executes, based on the returned status."""
     status = getattr(state, "status", None)
+    phase = getattr(state, "current_phase", None)
 
     if status == FlowStatus.NEXT_AUDITOR:
         return "next_auditor"
-    if getattr(state, "current_phase", None) == WorkPhase.REFACTORING:
+
+    if phase == WorkPhase.REFACTORING or status == FlowStatus.POST_AUDIT_REFACTOR:
         return "refactor_node"
-    if getattr(state, "current_phase", None) == WorkPhase.FINAL_CRITIC:
+
+    if phase == WorkPhase.FINAL_CRITIC or status == FlowStatus.READY_FOR_AUDIT:
         return "final_critic"
-    if status == FlowStatus.COMPLETED and getattr(state, "current_phase", None) == WorkPhase.REFACTORING:
-        return "refactor_node"
-    if status == FlowStatus.COMPLETED and getattr(state, "current_phase", None) == WorkPhase.FINAL_CRITIC:
-        return "final_critic"
-    if status == FlowStatus.POST_AUDIT_REFACTOR:
-        return "refactor_node"
-    if status == FlowStatus.READY_FOR_AUDIT:
-        return "final_critic"
+
     if status == FlowStatus.WAIT_FOR_JULES_COMPLETION:
         return "impl_coder_node"
 

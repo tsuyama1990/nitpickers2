@@ -68,7 +68,9 @@ class CoderUseCase:
 
         # --- A. Attempt to identify/wait for an EXISTING session ---
         if (state.status == FlowStatus.WAIT_FOR_JULES_COMPLETION or state.resume_mode) and (
-            cycle_manifest and cycle_manifest.jules_session_id and cycle_manifest.jules_session_id != "null"
+            cycle_manifest
+            and cycle_manifest.jules_session_id
+            and cycle_manifest.jules_session_id != "null"
         ):
             jules_session_name = cycle_manifest.jules_session_id
             console.print(
@@ -96,7 +98,6 @@ class CoderUseCase:
             SHOULD_REUSE_STATUSES = {
                 FlowStatus.RETRY_FIX,
                 FlowStatus.REJECTED,
-
                 FlowStatus.TDD_FAILED,
                 FlowStatus.START,
                 None,
@@ -108,13 +109,23 @@ class CoderUseCase:
                     result = reuse_result
 
         # --- B2. Special Case: Resuming a session that is already COMPLETED ---
-        if not result and cycle_manifest and cycle_manifest.jules_session_id and cycle_manifest.jules_session_id != "null" and state.status in {FlowStatus.START, None}:
-                # If we are in START and have a session ID, it means we are resuming.
-                # If the session is already COMPLETED, we should just get the result.
-                session_state = await self.jules.get_session_state(cycle_manifest.jules_session_id)
-                if session_state == "COMPLETED":
-                    console.print(f"[bold blue]Session {cycle_manifest.jules_session_id} is COMPLETED. Retrieving result...[/bold blue]")
-                    result = await self.jules.wait_for_completion(cycle_manifest.jules_session_id, expect_new_work=False)
+        if (
+            not result
+            and cycle_manifest
+            and cycle_manifest.jules_session_id
+            and cycle_manifest.jules_session_id != "null"
+            and state.status in {FlowStatus.START, None}
+        ):
+            # If we are in START and have a session ID, it means we are resuming.
+            # If the session is already COMPLETED, we should just get the result.
+            session_state = await self.jules.get_session_state(cycle_manifest.jules_session_id)
+            if session_state == "COMPLETED":
+                console.print(
+                    f"[bold blue]Session {cycle_manifest.jules_session_id} is COMPLETED. Retrieving result...[/bold blue]"
+                )
+                result = await self.jules.wait_for_completion(
+                    cycle_manifest.jules_session_id, expect_new_work=False
+                )
 
         # --- C. Launch NEW session ---
         if not result:
@@ -126,7 +137,11 @@ class CoderUseCase:
                 async with workspace_lock:
                     # --- Branch Resolution ---
                     # We always prefer to continue on the existing feature branch if it exists.
-                    target_branch = cycle_manifest.branch_name if (cycle_manifest and cycle_manifest.branch_name) else None
+                    target_branch = (
+                        cycle_manifest.branch_name
+                        if (cycle_manifest and cycle_manifest.branch_name)
+                        else None
+                    )
                     if not target_branch and state.feature_branch:
                         target_branch = state.feature_branch
 
@@ -144,7 +159,13 @@ class CoderUseCase:
                     session_req_id = f"{prefix}-cycle-{cycle_id}-iter-{iteration}-{timestamp}-{uuid.uuid4().hex[:6]}"
 
                     jules_session_name, result = await self._run_jules_session(
-                        session_req_id, instruction, target_files, context_files, cycle_id, mgr, branch=target_branch
+                        session_req_id,
+                        instruction,
+                        target_files,
+                        context_files,
+                        cycle_id,
+                        mgr,
+                        branch=target_branch,
                     )
 
                 # --- Outside lock, wait for completion if running ---
@@ -209,7 +230,11 @@ class CoderUseCase:
             # We preserve it if we are fixing a structural (TDD) error or an auditor rejection
             # to avoid redundant self-critic reviews and proceed directly to the next phase.
 
-            session_update = state.session.model_copy(update=session_updates) if session_updates else state.session
+            session_update = (
+                state.session.model_copy(update=session_updates)
+                if session_updates
+                else state.session
+            )
 
             # --- Final Verification: If we reused a session, ensure the commit hash is updated in state ---
             if branch_val and not state.last_processed_commit:
@@ -222,7 +247,7 @@ class CoderUseCase:
                     session_restart_count=0,
                     pr_url=pr_val,
                     branch_name=branch_val,
-                    status=target_status, # Persist status for resume support
+                    status=target_status,  # Persist status for resume support
                 )
 
             # --- Explicit PR Checkpoint Notification ---
@@ -326,7 +351,6 @@ class CoderUseCase:
         REUSABLE_STATUSES = {
             FlowStatus.RETRY_FIX,
             FlowStatus.REJECTED,
-
             FlowStatus.TDD_FAILED,
             FlowStatus.START,
             FlowStatus.READY_FOR_AUDIT,  # Safeguard for loopbacks
@@ -498,7 +522,9 @@ class CoderUseCase:
                     if current_commit == state.last_processed_commit:
                         # In critic phase, it's possible no changes were needed.
                         # We don't force a push here, but we update the state to the current commit.
-                        logger.info(f"[CRITIC] No new commits in critic phase on {branch_val}. This is acceptable.")
+                        logger.info(
+                            f"[CRITIC] No new commits in critic phase on {branch_val}. This is acceptable."
+                        )
 
                 # Always capture the latest state after the phase completes
                 await self._update_last_processed_commit(state, result.get("branch_name"))
@@ -551,13 +577,17 @@ class CoderUseCase:
                         # If it's a refactoring phase (wrap=False), we can be more lenient
                         # as Jules might legitimately decide no changes are needed.
                         if not wrap:
-                            console.print("[bold green]Jules confirms no additional refactoring needed. Proceeding to final review.[/bold green]")
+                            console.print(
+                                "[bold green]Jules confirms no additional refactoring needed. Proceeding to final review.[/bold green]"
+                            )
                             return dict(result)
 
                         console.print(
                             f"[yellow]Warning: Jules completed the turn but no new commits were found on {branch_val}.[/yellow]"
                         )
-                        console.print("[cyan]Sending fallback request to Jules to push commits...[/cyan]")
+                        console.print(
+                            "[cyan]Sending fallback request to Jules to push commits...[/cyan]"
+                        )
                         push_msg = (
                             "You marked the task as completed, but you did not push any new commits. "
                             "You MUST apply the code changes, run `git commit`, and `git push` before completing your turn. "
@@ -568,7 +598,9 @@ class CoderUseCase:
                             current_commit = await self.jules.get_latest_branch_commit(branch_val)
                             if current_commit == state.last_processed_commit:
                                 # Still no push after nudge? For audit rejections, this is a failure.
-                                err = RuntimeError("Jules refused to push new commits after audit rejection fallback.")
+                                err = RuntimeError(
+                                    "Jules refused to push new commits after audit rejection fallback."
+                                )
                                 raise err  # noqa: TRY301
                 return dict(result)
 

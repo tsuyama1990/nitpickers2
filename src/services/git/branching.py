@@ -16,7 +16,6 @@ class GitBranchingMixin(BaseGitManager):
         """Returns the URL of the 'origin' remote."""
         return await self._run_git(["config", "--get", "remote.origin.url"])
 
-
     async def create_integration_branch(
         self, session_id: str, prefix: str = "dev", branch_name: str | None = None
     ) -> str:
