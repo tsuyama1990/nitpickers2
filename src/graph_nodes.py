@@ -57,7 +57,7 @@ class CycleNodes(IGraphNodes):
             container.resolve("git_manager") if hasattr(container, "resolve") else GitManager()
         )
         self.llm_reviewer = LLMReviewer(sandbox_runner=sandbox_runner)
-        self.audit_orchestrator = AuditOrchestrator(jules_client, sandbox_runner)
+        self.audit_orchestrator = AuditOrchestrator(jules_client)
 
         self._architect = ArchitectNodes(jules=self.jules, git=self.git)
         self._architect_critic = ArchitectCriticNodes(self.jules, git_manager=self.git)

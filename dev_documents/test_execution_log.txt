@@ -1,5 +1,0 @@
-Baseline: 1.9755 seconds for 100000 iterations
-Average: 19.7552 microseconds per iteration
-test_extract_json_skips_python_block: PASSED
-test_extract_json_truncated: PASSED
-test_no_markdown_blocks_just_curly: PASSED

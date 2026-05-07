@@ -1,5 +1,5 @@
 import asyncio
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from rich.console import Console
 from rich.panel import Panel
@@ -7,9 +7,6 @@ from rich.panel import Panel
 from src.config import settings
 from src.services.jules_client import JulesClient
 from src.services.plan_auditor import PlanAuditor
-
-if TYPE_CHECKING:
-    from src.sandbox import SandboxRunner
 
 console = Console()
 
@@ -22,14 +19,12 @@ class AuditOrchestrator:
     def __init__(
         self,
         jules_client: JulesClient,
-        sandbox_runner: "SandboxRunner",
         plan_auditor: PlanAuditor | None = None,
     ) -> None:
         self.jules = jules_client
         if not self.jules:
             msg = "JulesClient must be injected into AuditOrchestrator"
             raise ValueError(msg)
-        self.sandbox = sandbox_runner
         self.auditor = plan_auditor or PlanAuditor()
 
     async def run_interactive_session(
