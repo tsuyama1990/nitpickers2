@@ -4,24 +4,24 @@ from pydantic import ValidationError
 from src.jules_session_state import JulesSessionState, SessionStatus, add_set
 
 
-def test_add_set_both_none() -> None:
-    assert add_set(None, None) == set()
-
-
-def test_add_set_first_none() -> None:
-    assert add_set(None, {"a", "b"}) == {"a", "b"}
-
-
-def test_add_set_second_none() -> None:
-    assert add_set({"a", "b"}, None) == {"a", "b"}
-
-
-def test_add_set_disjoint() -> None:
-    assert add_set({"a"}, {"b"}) == {"a", "b"}
-
-
-def test_add_set_overlapping() -> None:
-    assert add_set({"a", "b"}, {"b", "c"}) == {"a", "b", "c"}
+@pytest.mark.parametrize(
+    ("a", "b", "expected"),
+    [
+        (None, None, set()),
+        (None, set(), set()),
+        (set(), None, set()),
+        (set(), set(), set()),
+        (None, {"a", "b"}, {"a", "b"}),
+        ({"a", "b"}, None, {"a", "b"}),
+        (set(), {"a", "b"}, {"a", "b"}),
+        ({"a", "b"}, set(), {"a", "b"}),
+        ({"a"}, {"b"}, {"a", "b"}),
+        ({"a", "b"}, {"b", "c"}, {"a", "b", "c"}),
+        ({"a", "b"}, {"a", "b"}, {"a", "b"}),
+    ],
+)
+def test_add_set(a: set[str] | None, b: set[str] | None, expected: set[str]) -> None:
+    assert add_set(a, b) == expected
 
 
 def test_jules_session_state_defaults() -> None:

@@ -7,8 +7,11 @@ from pydantic import BaseModel, Field
 
 
 def add_set(a: set[str] | None, b: set[str] | None) -> set[str]:
-    a = a or set()
-    b = b or set()
+    """Custom reducer for sets to ensure we don't overwrite but union."""
+    if a is None:
+        a = set()
+    if b is None:
+        b = set()
     return a | b
 
 
