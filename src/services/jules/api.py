@@ -150,16 +150,9 @@ class JulesApiClient:
                     logger.debug(f"Retry 1: Trailing slash -> {url_slash}")
                     response = await _do_req(url_slash)
 
-                # Workaround 2: Key in query parameter (fixes some proxy/auth issues)
-                if response.status_code == 404 and "key=" not in str(url):
-                    separator = "&" if "?" in str(url) else "?"
-                    url_key = f"{url}{separator}key={self._api_key}"
-                    logger.debug(f"Retry 2: Key in query param -> {url_key[:50]}...")
-                    response = await _do_req(url_key)
-
-                # Workaround 3: Force HTTP/1.1 (fixes some h2 multiplexing issues)
+                # Workaround 2: Force HTTP/1.1 (fixes some h2 multiplexing issues)
                 if response.status_code == 404:
-                    logger.debug("Retry 3: Forcing HTTP/1.1")
+                    logger.debug("Retry 2: Forcing HTTP/1.1")
                     response = await _do_req(url, use_h2=False)
 
             response.raise_for_status()
