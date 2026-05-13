@@ -17,15 +17,30 @@ class DependencyManager:
             logger.info("Initializing pyproject.toml...")
             await self.runner.run_command(["uv", "init", "--no-workspace"], check=False)
 
-        logger.info("Adding development dependencies (ruff, mypy, pytest)...")
+        # Smart dependency check to avoid 'ambiguous update' errors in uv
+        pyproject_content = ""
         try:
-            await self.runner.run_command(
-                ["uv", "add", "--dev", "--no-sync", "ruff", "mypy", "pytest", "pytest-cov"],
-                check=True,
-            )
-            logger.info("✓ Dependencies added to pyproject.toml successfully.")
-        except Exception as e:
-            logger.warning(f"Failed to install dependencies: {e}")
+            pyproject_content = (Path.cwd() / "pyproject.toml").read_text()
+        except Exception:
+            pass
+
+        deps_to_add = []
+        for dep in ["ruff", "mypy", "pytest", "pytest-cov", "pre-commit"]:
+            if dep not in pyproject_content:
+                deps_to_add.append(dep)
+
+        if deps_to_add:
+            logger.info(f"Adding missing development dependencies ({', '.join(deps_to_add)})...")
+            try:
+                await self.runner.run_command(
+                    ["uv", "add", "--dev", "--no-sync", *deps_to_add],
+                    check=True,
+                )
+                logger.info("✓ Dependencies added to pyproject.toml successfully.")
+            except Exception as e:
+                logger.warning(f"Failed to install dependencies: {e}")
+        else:
+            logger.info("Core development dependencies already present in pyproject.toml.")
 
         if not (Path.cwd() / ".git").exists():
             logger.info("Initializing Git repository...")

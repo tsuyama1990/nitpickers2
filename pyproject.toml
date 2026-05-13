@@ -39,14 +39,9 @@ nitpick = "src.cli:app"
 [dependency-groups]
 dev = [
     "shellingham",
-    "pytest",
-    "pytest-cov",
     "hypothesis",
     "playwright",
     "vcrpy",
-    "ruff",
-    "google-genai",
-    "mypy",
     "bandit",
     "types-PyYAML",
     "pytest-asyncio>=1.3.0",
@@ -60,6 +55,7 @@ dev = [
     "respx>=0.22.0",
     "pyfakefs>=6.1.6",
     "pytest-httpserver>=1.1.5",
+    "google-genai",
 ]
 
 [tool.ruff]
