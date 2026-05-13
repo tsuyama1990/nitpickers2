@@ -40,13 +40,17 @@ class FeedbackFixUseCase(BaseJulesUseCase):
             branch_val = result.get("branch_name") or (
                 cycle_manifest.branch_name if cycle_manifest else None
             )
-            new_commit = await self.jules.get_latest_branch_commit(branch_val) if branch_val else None
-            
+            new_commit = (
+                await self.jules.get_latest_branch_commit(branch_val) if branch_val else None
+            )
+
             if new_commit and new_commit == state.last_processed_commit:
-                logger.error(f"[{phase_label}] Failed: Jules reported success but no new commits found on {branch_val}.")
+                logger.error(
+                    f"[{phase_label}] Failed: Jules reported success but no new commits found on {branch_val}."
+                )
                 return {
-                    "status": FlowStatus.FAILED, 
-                    "error": f"Jules failed to push changes for {phase_label} (Commit stuck at {new_commit})"
+                    "status": FlowStatus.FAILED,
+                    "error": f"Jules failed to push changes for {phase_label} (Commit stuck at {new_commit})",
                 }
 
             await self._update_last_processed_commit(state, branch_val)

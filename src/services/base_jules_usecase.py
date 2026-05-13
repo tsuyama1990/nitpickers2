@@ -58,7 +58,7 @@ class BaseJulesUseCase:
 
         # 2. Prepare variables for replacement
         pr_url = state.pr_url or (cycle_manifest.pr_url if cycle_manifest else "")
-        
+
         # 3. Perform replacements
         instruction = instruction.replace("{{cycle_id}}", str(cycle_id))
         instruction = instruction.replace("{{feedback}}", feedback_val)
@@ -67,10 +67,14 @@ class BaseJulesUseCase:
         # 4. Handle simple conditional blocks like {{#pr_url}}...{{/pr_url}}
         if pr_url:
             # Remove the tags but keep the content
-            instruction = re.sub(r"\{\{#pr_url\}\}(.*?)\{\{/pr_url\}\}", r"\1", instruction, flags=re.DOTALL)
+            instruction = re.sub(
+                r"\{\{#pr_url\}\}(.*?)\{\{/pr_url\}\}", r"\1", instruction, flags=re.DOTALL
+            )
         else:
             # Remove the entire block including content
-            instruction = re.sub(r"\{\{#pr_url\}\}.*?\{\{/pr_url\}\}", "", instruction, flags=re.DOTALL)
+            instruction = re.sub(
+                r"\{\{#pr_url\}\}.*?\{\{/pr_url\}\}", "", instruction, flags=re.DOTALL
+            )
 
         return instruction
 
@@ -90,7 +94,7 @@ class BaseJulesUseCase:
             r"WARN\[\d+\]\s+.*",
             r"Download\s+.*",
         ]
-        
+
         lines = raw_logs.splitlines()
         clean_lines = []
         for line in lines:
@@ -99,7 +103,7 @@ class BaseJulesUseCase:
             if not line.strip():
                 continue
             clean_lines.append(line)
-        
+
         return "\n".join(clean_lines)
 
     async def _update_last_processed_commit(

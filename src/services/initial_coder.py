@@ -82,7 +82,9 @@ class InitialCoderUseCase(BaseJulesUseCase):
 
         if result and (result.get("status") == "success" or result.get("pr_url")):
             branch_val = result.get("branch_name") or cycle_manifest.branch_name
-            new_commit = await self.jules.get_latest_branch_commit(branch_val) if branch_val else None
+            new_commit = (
+                await self.jules.get_latest_branch_commit(branch_val) if branch_val else None
+            )
 
             if not new_commit or new_commit == "unknown":
                 logger.error(f"Initial Coder Failed: No commit found on {branch_val}")

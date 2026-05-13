@@ -55,7 +55,7 @@ services:
       - NITPICK_AUDITOR_MODEL=openrouter/openai/gpt-oss-120b:free
       - NITPICK_REVIEWER__SMART_MODEL=openrouter/openai/gpt-oss-120b:free
       - NITPICK_RCA_MODEL=openrouter/openai/gpt-oss-120b:free
-      - NITPICK_NUM_AUDITORS=1
+      - NITPICK_NUM_AUDITORS=2
       - NITPICK_REVIEWS_PER_AUDITOR=2
       - NITPICK_MAX_ITERATIONS=4
       - JULES_STALE_SESSION_TIMEOUT_SECONDS=3600
