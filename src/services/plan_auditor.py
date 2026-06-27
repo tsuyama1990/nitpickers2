@@ -1,56 +1,40 @@
+"""Plan validation using litellm + structured output."""
+
 from typing import Any
 
-from pydantic_ai import Agent
-from pydantic_ai.models.openai import OpenAIModel
+import litellm
 
 from src.config import settings
 from src.domain_models import PlanAuditResult
 
 
-def _create_model(model_str: str) -> str | Any:
-    """Create appropriate model instance from model string."""
-    # If model string starts with "openrouter/", use OpenAIModel with OpenRouter provider
-    if model_str.startswith("openrouter/"):
-        # Extract the model name (remove "openrouter/" prefix)
-        model_name = model_str.replace("openrouter/", "", 1)
-        # Use OpenAIModel with openrouter provider
-        return OpenAIModel(model_name, provider="openrouter")
-    # Otherwise, return the model string as-is for pydantic-ai to infer
-    return model_str
-
-
 class PlanAuditor:
     """
     Validates implementation plans against requirements using an AI agent.
+    Uses litellm for LLM calls with structured JSON output.
     """
 
-    def __init__(self, agent: Agent[Any, PlanAuditResult] | None = None) -> None:
-        self.agent = agent or Agent(
-            model=_create_model(settings.agents.auditor_model),
-            output_type=PlanAuditResult,
-            system_prompt=(
-                "You are an expert Software Architect and QA Auditor. "
-                "Your job is to audit ARCHITECTURAL PLANS (not implementation code) against requirements. "
-                "Understand that an Architect creates high-level design and file structure, "
-                "NOT detailed implementation code. The actual coding will be done by a Coder in a later phase."
-            ),
+    def __init__(self) -> None:
+        self.model = self._resolve_model(settings.agents.auditor_model)
+        self.system_prompt = settings.read_template(
+            "PLAN_AUDITOR_SYSTEM.md",
+            default="You are an expert Software Architect and QA Auditor.",
         )
+
+    @staticmethod
+    def _resolve_model(model_str: str) -> str:
+        """Resolve model string to a litellm-compatible model name."""
+        # openrouter/ prefix is passed as-is, litellm handles it
+        return model_str
 
     async def audit_plan(
         self,
         plan_details: dict[str, Any],
         context_files: dict[str, str],
-        phase: str = "coder",  # "architect" or "coder"
+        phase: str = "coder",
         cycle_id: str | None = None,
     ) -> PlanAuditResult:
-        """
-        Audits a plan against the requirements.
-        Args:
-            plan_details: The plan to audit
-            context_files: Reference requirements (SPEC.md, etc.)
-            phase: "architect" for high-level architectural plans (gen-cycles),
-                   "coder" for detailed implementation plans (run-cycle)
-        """
+        """Audits a plan against the requirements using litellm."""
         # Construct context
         context_str = "## Reference Requirements\n"
         for fname, content in context_files.items():
@@ -58,62 +42,44 @@ class PlanAuditor:
 
         plan_str = f"## Proposed Plan\n{plan_details}"
 
-        # Different prompts for different phases
+        # Load template
         if phase == "architect":
-            user_prompt = (
-                f"Please audit the following ARCHITECTURAL PLAN against the requirements.\n\n"
-                f"{context_str}\n"
-                f"{plan_str}\n\n"
-                "**IMPORTANT CONTEXT:**\n"
-                "This is an ARCHITECTURAL PLAN from the Architect phase. The Architect's job is to:\n"
-                "- Define the system structure and file organization\n"
-                "- Specify what components/modules need to be created\n"
-                "- Outline the high-level approach for each cycle\n"
-                "The Architect does NOT write actual implementation code - that's the Coder's job.\n\n"
-                "**APPROVAL CRITERIA:**\n"
-                "- APPROVE if the plan identifies the key components and files needed\n"
-                "- APPROVE if the plan addresses the main requirements from SPEC.md\n"
-                "- APPROVE if the plan follows a logical implementation order\n"
-                "- Do NOT reject for lacking detailed implementation code - that's expected\n"
-                "- REJECT only if the plan is missing critical architectural components or has major structural flaws\n\n"
-                "Be pragmatic: A good architectural plan outlines WHAT to build and WHERE, not HOW to code it. "
-                "If it covers the main components and structure, APPROVE it."
-            )
-        else:  # coder phase
-            c_str = f"CYCLE {cycle_id}" if cycle_id else "THIS CYCLE"
-            user_prompt = (
-                f"Please audit the following IMPLEMENTATION PLAN against the requirements.\n\n"
-                f"{context_str}\n"
-                f"{plan_str}\n\n"
-                "**IMPORTANT CONTEXT:**\n"
-                f"This is an IMPLEMENTATION PLAN from the Coder (Jules) for a SPECIFIC CYCLE.\n"
-                "The Coder's job is to:\n"
-                f"- Implement the actual code for the components REQUIRED IN {c_str} ONLY\n"
-                f"- Write tests and ensure functionality FOR {c_str}'S FEATURES\n"
-                "- Follow the architecture defined in the Architect phase\n\n"
-                "**CRITICAL SCOPE LIMITATION:**\n"
-                f"- The context above includes 'CURRENT CYCLE: {cycle_id or 'XX'}' - this defines which cycle you're reviewing\n"
-                f"- The SPEC.md and UAT.md files contain requirements. Focus ONLY on {c_str}\n"
-                f"- Do NOT require features from other cycles to be implemented in this plan\n"
-                f"- The plan should focus ONLY on what's specified in the provided SPEC.md for {c_str}\n"
-                "- Future cycles will handle additional features - that's by design\n\n"
-                "**APPROVAL CRITERIA:**\n"
-                f"- APPROVE if the plan covers the implementation steps for {c_str}'S requirements (as defined in SPEC.md)\n"
-                f"- APPROVE if the plan includes testing and verification for {c_str}'S features\n"
-                "- APPROVE if the plan is technically sound and feasible\n"
-                f"- Do NOT reject for missing features that are not in {c_str}'S SPEC.md\n"
-                f"- REJECT only if the plan is missing critical steps for {c_str} or has major technical flaws\n\n"
-                f"Be pragmatic: A good implementation plan covers {c_str}'S tasks thoroughly. "
-                "If it addresses the requirements in the provided SPEC.md, APPROVE it."
-            )
+            template_name = "PLAN_AUDITOR_ARCHITECT.md"
+            template_vars = {"context": context_str, "plan": plan_str}
+        else:
+            template_name = "PLAN_AUDITOR_CODER.md"
+            template_vars = {
+                "context": context_str,
+                "plan": plan_str,
+                "cycle_id": cycle_id or "XX",
+                "cycle_ref": f"CYCLE {cycle_id}" if cycle_id else "THIS CYCLE",
+            }
+
+        user_prompt = settings.read_template(template_name)
+        for key, value in template_vars.items():
+            user_prompt = user_prompt.replace(f"{{{key}}}", value)
+
+        PlanAuditResult.model_json_schema()
 
         try:
-            result = await self.agent.run(user_prompt)
+            response = await litellm.acompletion(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": self.system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.0,
+            )
+            content = response.choices[0].message.content
+            if not content:
+                return PlanAuditResult(
+                    status="REJECTED",
+                    reason="LLM returned empty response",
+                )
+            return PlanAuditResult.model_validate_json(content)
         except Exception as e:
             return PlanAuditResult(
                 status="REJECTED",
                 reason=f"Audit process failed: {e}",
             )
-        else:
-            # pydantic-ai v1.32.0+ uses .data for structured result
-            return result.data  # type: ignore

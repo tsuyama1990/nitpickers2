@@ -96,8 +96,9 @@ You must follow the architectural hierarchy in your reasoning process:
   - Create mock classes for the Interfaces defined in `dev_documents/system_prompts/CYCLE{{cycle_id}}/SPEC.md`.
 - **Integration Tests (`tests/e2e/`)**:
   - Create the skeleton for E2E tests matching `dev_documents/system_prompts/CYCLE{{cycle_id}}/SPEC.md` strategies.
-- **UAT Verification (`tests/uat/`)**:
+- **UAT Verification**:
   - Create Jupyter Notebooks (`.ipynb`) or scripts corresponding to `dev_documents/system_prompts/CYCLE{{cycle_id}}/UAT.md`.
+  - Place UAT test scripts under `tests/unit/` (for domain logic) or `tests/integration/` (for pipeline orchestration).
   - These scripts should import your models and verify the "User Experience" flow.
 
 ### 3. Phase 3: Logic Implementation

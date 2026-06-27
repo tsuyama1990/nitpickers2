@@ -3,9 +3,8 @@ from pathlib import Path
 from typing import Any
 
 from src.config import settings
-from src.domain_models.refactor import GlobalRefactorResult
+from src.domain_models import GlobalRefactorResult
 from src.services.ast_analyzer import ASTAnalyzer
-from src.services.jules_client import JulesClient
 from src.utils import logger
 
 
@@ -13,9 +12,9 @@ class RefactorUsecase:
     """Uses the AST analyzer to identify global refactoring opportunities and delegates to Jules."""
 
     def __init__(
-        self, jules_client: JulesClient | None = None, base_dir: Path | None = None
+        self, jules_client: Any, base_dir: Path | None = None
     ) -> None:
-        self.jules_client = jules_client or JulesClient()
+        self.jules_client = jules_client
         self.base_dir = (base_dir or settings.paths.src).resolve()
 
     def _format_duplicates(self, duplicates: list[list[dict[str, Any]]]) -> str:
@@ -61,8 +60,7 @@ class RefactorUsecase:
             )
 
         # Build prompt from fixed prompt file and AST data
-        # Now uses a more robust template fallback if GLOBAL_REFACTOR_PROMPT.md is missing or empty
-        prompt_template = settings.get_prompt_content(
+        prompt_template = settings.read_template(
             "GLOBAL_REFACTOR_PROMPT.md",
             default="Refactor the following code to reduce complexity and unify logic: {AST_duplicates}",
         )
@@ -105,9 +103,19 @@ class RefactorUsecase:
         session_id = f"master-integrator-{settings.current_session_id}-{secure_token}"
 
         try:
-            await self.jules_client.run_session(
+            result = await self.jules_client.run_session(
                 session_id=session_id, prompt=prompt, files=list(modified_files)
             )
+
+            # Wait for the session to complete (fire-and-forget was a bug)
+            if result.get("status") == "running" and result.get("session_name"):
+                session_name = result["session_name"]
+                logger.info(f"Waiting for refactoring session {session_name} to complete...")
+                completion = await self.jules_client.wait_for_completion(session_name)
+                if completion.get("status") == "success":
+                    logger.info(f"Refactoring session {session_name} completed successfully.")
+                else:
+                    logger.warning(f"Refactoring session {session_name} completed with status: {completion.get('status')}")
 
             return GlobalRefactorResult(
                 refactorings_applied=True,

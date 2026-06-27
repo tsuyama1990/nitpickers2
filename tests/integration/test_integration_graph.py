@@ -8,7 +8,6 @@ import pytest
 
 from src.config import settings
 from src.graph import GraphBuilder
-from src.sandbox import SandboxRunner
 from src.service_container import ServiceContainer
 from src.services.jules_client import JulesClient
 from src.state import IntegrationState
@@ -63,11 +62,10 @@ def repo_path(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def integration_graph() -> Any:
-    sandbox = MagicMock(spec=SandboxRunner)
     jules = MagicMock(spec=JulesClient)
 
     container = ServiceContainer.default()
-    builder = GraphBuilder(container, sandbox, jules)
+    builder = GraphBuilder(container, jules=jules)
     return builder.build_integration_graph()
 
 
@@ -155,13 +153,7 @@ async def test_integration_graph_semantic_failure(repo_path: Path, integration_g
     with (
         patch.object(settings.paths, "workspace_root", repo_path),
         patch("os.getcwd", return_value=str(repo_path)),
-        patch(
-            "src.nodes.sandbox_evaluator.SandboxEvaluatorNodes.sandbox_evaluate_node"
-        ) as mock_sandbox,
     ):
-        # Mock global_sandbox_node to fail initially, then pass
-        mock_sandbox.side_effect = [{"status": "tdd_failed"}, {"status": "pass"}]
-
         # Mock the integration fixer node to resolve the issue
         with patch(
             "src.nodes.integration_fixer.IntegrationFixerNodes.integration_fixer_node"
@@ -175,4 +167,3 @@ async def test_integration_graph_semantic_failure(repo_path: Path, integration_g
             )
 
             assert mock_fixer.called
-            assert mock_sandbox.call_count == 2

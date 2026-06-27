@@ -7,18 +7,15 @@ from src.state import CycleState
 
 
 def test_coder_graph_happy_path() -> None:  # noqa: C901
-    from src.sandbox import SandboxRunner
     from src.service_container import ServiceContainer
     from src.services.jules_client import JulesClient
 
     services = MagicMock()
     services.__class__ = ServiceContainer  # type: ignore[assignment]
-    sandbox = MagicMock()
-    sandbox.__class__ = SandboxRunner  # type: ignore[assignment]
     jules = MagicMock()
     jules.__class__ = JulesClient  # type: ignore[assignment]
 
-    builder = GraphBuilder(services, sandbox, jules)
+    builder = GraphBuilder(services, jules=jules)
 
     nodes_mock = MagicMock()
 
@@ -63,37 +60,29 @@ def test_coder_graph_happy_path() -> None:  # noqa: C901
 
     nodes_mock.refactor_node = mock_refactor
 
+    def mock_committee_manager(state: CycleState) -> dict[str, Any]:
+        # Preserve committee state (is_refactoring flag) so route_committee can route correctly
+        return {"committee": state.committee}
+
+    nodes_mock.committee_manager_node = mock_committee_manager
+
     def mock_final_critic(state: CycleState) -> dict[str, Any]:
         return {"status": FlowStatus.COMPLETED}
 
     nodes_mock.final_critic_node = mock_final_critic
 
     def mock_check_coder_outcome(state: CycleState) -> str:
-        return "sandbox_evaluate"
+        return "self_critic_node"
 
     nodes_mock.check_coder_outcome = mock_check_coder_outcome
 
-    def mock_route_sandbox(state: CycleState) -> str:
+    def mock_route_committee(state: CycleState) -> str:
+        # Route to final_critic after refactoring is done
         if getattr(state.committee, "is_refactoring", False):
             return "final_critic"
-        return "auditor"
-
-    nodes_mock.route_sandbox_evaluate = mock_route_sandbox
-
-    def mock_route_auditor(state: CycleState) -> str:
-        return "pass_all"
-
-    nodes_mock.route_auditor = mock_route_auditor
-
-    def mock_route_committee(state: CycleState) -> str:
-        return "refactor"
+        return "refactor_node"
 
     nodes_mock.route_committee = mock_route_committee
-
-    def mock_route_final_critic(state: CycleState) -> str:
-        return "approve"
-
-    nodes_mock.route_final_critic = mock_route_final_critic
 
     # Inject mock nodes
     builder.nodes = nodes_mock
@@ -116,18 +105,15 @@ def test_coder_graph_happy_path() -> None:  # noqa: C901
 
 
 def test_coder_graph_rejection_loop() -> None:  # noqa: C901
-    from src.sandbox import SandboxRunner
     from src.service_container import ServiceContainer
     from src.services.jules_client import JulesClient
 
     services = MagicMock()
     services.__class__ = ServiceContainer  # type: ignore[assignment]
-    sandbox = MagicMock()
-    sandbox.__class__ = SandboxRunner  # type: ignore[assignment]
     jules = MagicMock()
     jules.__class__ = JulesClient  # type: ignore[assignment]
 
-    builder = GraphBuilder(services, sandbox, jules)
+    builder = GraphBuilder(services, jules=jules)
 
     nodes_mock = MagicMock()
 
@@ -181,31 +167,14 @@ def test_coder_graph_rejection_loop() -> None:  # noqa: C901
     nodes_mock.committee_manager_node = mock_committee_manager
 
     def mock_check_coder_outcome(state: CycleState) -> str:
-        return "sandbox_evaluate"
+        return "self_critic_node"
 
     nodes_mock.check_coder_outcome = mock_check_coder_outcome
-
-    def mock_route_sandbox(state: CycleState) -> str:
-        return "auditor"
-
-    nodes_mock.route_sandbox_evaluate = mock_route_sandbox
-
-    def mock_route_auditor(state: CycleState) -> str:
-        if getattr(state.committee, "audit_attempt_count", 0) > 0:
-            return "requires_pivot"
-        return "reject"
-
-    nodes_mock.route_auditor = mock_route_auditor
 
     def mock_route_committee(state: CycleState) -> str:
         return "impl_coder_node"
 
     nodes_mock.route_committee = mock_route_committee
-
-    def mock_route_final_critic(state: CycleState) -> str:
-        return "approve"
-
-    nodes_mock.route_final_critic = mock_route_final_critic
 
     # Inject mock nodes
     builder.nodes = nodes_mock

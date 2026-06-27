@@ -7,8 +7,7 @@ from typing import Any, TypeVar
 import httpx
 
 from src.config import settings
-from src.domain_models.config import DispatcherConfig
-from src.domain_models.manifest import CycleManifest
+from src.domain_models import CycleManifest, DispatcherConfig
 from src.utils import logger
 
 

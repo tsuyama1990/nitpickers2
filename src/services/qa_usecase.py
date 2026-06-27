@@ -9,7 +9,6 @@ from src.config import settings
 from src.domain_models import AuditResult
 from src.enums import FlowStatus
 from src.services.git_ops import GitManager
-from src.services.jules_client import JulesClient
 from src.services.llm_reviewer import LLMReviewer
 from src.state import CycleState
 from src.state_manager import StateManager
@@ -23,7 +22,7 @@ class QaUseCase:
     """
 
     def __init__(
-        self, jules_client: JulesClient, git_manager: GitManager, llm_reviewer: LLMReviewer
+        self, jules_client: Any, git_manager: GitManager, llm_reviewer: LLMReviewer
     ) -> None:
         if not jules_client or not git_manager or not llm_reviewer:
             msg = "Missing required dependencies injected into QaUseCase"
@@ -39,7 +38,7 @@ class QaUseCase:
             f"[bold yellow]Sending Audit Feedback to existing Jules session: {session_id}[/bold yellow]"
         )
         try:
-            await self.jules._send_message(self.jules._get_session_url(session_id), feedback)
+            await self.jules.send_message(session_id, feedback)
             console.print(
                 "[dim]Waiting for Jules to process feedback (expecting IN_PROGRESS)...[/dim]"
             )

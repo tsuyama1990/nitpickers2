@@ -1,21 +1,39 @@
+import abc
 import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
+from pydantic import BaseModel, ConfigDict
 from rich.console import Console
 
 from src.config import settings
 from src.enums import FlowStatus
-from src.nodes.base import BaseNode
 from src.services.git_ops import GitManager
-from src.services.jules_client import JulesClient
 from src.state import CycleState
 
 console = Console()
 
 
+class BaseNode(BaseModel, abc.ABC):
+    """
+    Strictly-typed Pydantic base class for all Pipeline Nodes.
+    Enforces interface contracts for integration testing without mocks.
+    """
+
+    model_config = ConfigDict(
+        extra="forbid",
+        strict=True,
+        arbitrary_types_allowed=True,
+        frozen=True,
+    )
+
+    @abc.abstractmethod
+    async def __call__(self, state: Any) -> dict[str, Any]: ...
+
+
 class ArchitectNodes(BaseNode):
-    jules: JulesClient
+    """Architect graph node. Accepts any Any-compatible client."""
+    jules: Any
     git: GitManager
 
     model_config = BaseNode.model_config | {"arbitrary_types_allowed": True}
@@ -132,7 +150,7 @@ class ArchitectNodes(BaseNode):
         try:
             feedback_template = settings.read_template("AUDIT_FEEDBACK_MESSAGE.md")
             feedback_msg = feedback_template.replace("{{feedback}}", feedback)
-            await self.jules._send_message(self.jules._get_session_url(session_id), feedback_msg)
+            await self.jules.send_message(session_id, feedback_msg)
             console.print(
                 "[dim]Waiting for Jules to process feedback (expecting IN_PROGRESS)...[/dim]"
             )

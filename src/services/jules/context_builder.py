@@ -126,7 +126,7 @@ class JulesContextBuilder:
             return question
 
         full_context = "\n".join(context_parts)
-        instruction = settings.get_prompt_content(
+        instruction = settings.read_template(
             "MANAGER_INQUIRY_PROMPT.md",
             default=(
                 "**Instructions for Answering Jules' Question**:\n"

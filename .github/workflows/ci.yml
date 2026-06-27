@@ -34,7 +34,7 @@ jobs:
         run: uv run mypy src tests
 
       - name: Run Unit Tests
-        run: uv run pytest tests/unit/ tests/nitpick/unit/
+        run: uv run pytest tests/unit/
 
       - name: Run Property Tests
         run: |

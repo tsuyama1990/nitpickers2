@@ -7,7 +7,7 @@ from pathlib import Path
 from rich.console import Console
 
 from src.config import settings
-from src.domain_models.observability_config import ObservabilityConfig
+from src.domain_models import ObservabilityConfig
 from src.utils import logger
 
 console = Console()

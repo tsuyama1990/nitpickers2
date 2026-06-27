@@ -101,7 +101,13 @@ Review the code critically.
 - [ ] **I/O Efficiency:** **NO** I/O inside tight loops (e.g., checkpoint every item). Use batching.
 - [ ] **Big-O:** No N^2 loops on large lists.
 
-## 5. Test Quality
+## 5. Interface Contract Compliance (CRITICAL)
+- [ ] **型定義一致**: 実装された Pydantic モデルが SPEC.md の Interface Contract に定義された型と一致しているか
+- [ ] **インターフェース完全性**: SPEC.md で定義された全メソッド・関数シグネチャが実装されているか
+- [ ] **依存インターフェース**: 他サイクルのインターフェースを正しく import/利用しているか
+- [ ] **既存コードの保護**: Interface Contract に「変更禁止」と指定された箇所が修正されていないか
+
+## 6. Test Quality
 - [ ] **Traceability:** Tests exist for requirements?
 - [ ] **Edge Cases & Error Handling:** Are "unhappy paths" (e.g., invalid input, timeouts, missing files) explicitly tested?
 - [ ] **Mock Integrity (SUT):** The System Under Test (SUT) itself is NOT mocked.

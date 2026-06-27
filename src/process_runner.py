@@ -2,8 +2,7 @@ import asyncio
 import subprocess
 from pathlib import Path
 
-from .utils import logger
-from .utils_sanitization import redact_secrets
+from .utils import logger, redact_secrets
 
 
 class ProcessRunner:

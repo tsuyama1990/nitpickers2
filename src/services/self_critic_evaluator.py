@@ -5,8 +5,8 @@ from typing import Any
 from rich.console import Console
 
 from src.config import settings
-from src.domain_models.critic import CriticResult
-from src.utils_json import extract_json_from_text
+from src.domain_models import CriticResult
+from src.utils import extract_json_from_text
 
 console = Console()
 

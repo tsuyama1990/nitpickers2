@@ -1,7 +1,7 @@
 import re
 from pathlib import Path
 
-from src.domain_models.execution import ConflictRegistryItem
+from src.domain_models import ConflictRegistryItem
 from src.process_runner import ProcessRunner
 from src.utils import logger
 
@@ -171,17 +171,17 @@ class ConflictManager:
         try:
             from src.config import settings
 
-            prompt_template = settings.get_prompt_content("MASTER_INTEGRATOR_PROMPT.md")
+            prompt_template = settings.read_template(
+                "MASTER_INTEGRATOR_PROMPT.md",
+                default=(
+                    "You are the Master Integrator. Resolve the Git conflicts in this file.\n"
+                    "Do not just pick A or B; understand the intent of both branches.\n"
+                    "Apply DRY principles. Return the completely unified file without any `<<<<<<<` markers.\n"
+                    "Respond ONLY with the strictly validated JSON schema requested."
+                ),
+            )
         except Exception:
             prompt_template = ""
-
-        if not prompt_template:
-            prompt_template = (
-                "You are the Master Integrator. Resolve the Git conflicts in this file.\n"
-                "Do not just pick A or B; understand the intent of both branches.\n"
-                "Apply DRY principles. Return the completely unified file without any `<<<<<<<` markers.\n"
-                "Respond ONLY with the strictly validated JSON schema requested."
-            )
 
         return f"""{prompt_template}
 

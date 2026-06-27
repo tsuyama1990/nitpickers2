@@ -288,15 +288,15 @@ class CoderUseCase:
     ) -> str:
         """Assemble the Jules instruction prompt, injecting feedback when retrying."""
         if state.current_phase == WorkPhase.REFACTORING:
-            instruction = settings.get_prompt_content(
+            instruction = settings.read_template(
                 settings.template_files.post_audit_refactor_instruction
             )
         elif current_phase == WorkPhase.REFACTORING:
-            instruction = settings.get_prompt_content(
+            instruction = settings.read_template(
                 settings.template_files.final_refactor_instruction
             )
         else:
-            instruction = settings.get_prompt_content(settings.template_files.coder_instruction)
+            instruction = settings.read_template(settings.template_files.coder_instruction)
 
         if not instruction:
             instruction = "Implement the requested changes."
@@ -499,7 +499,7 @@ class CoderUseCase:
             template_file = settings.template_files.coder_critic_instruction
 
         try:
-            critic_instruction = settings.get_prompt_content(template_file)
+            critic_instruction = settings.read_template(template_file)
             if not critic_instruction:
                 console.print("[red]Failed to load Coder Critic instruction template.[/red]")
                 console.print(
@@ -509,8 +509,7 @@ class CoderUseCase:
 
             critic_instruction = critic_instruction.replace("{{cycle_id}}", str(cycle_id))
 
-            session_url = self.jules._get_session_url(jules_session_name)
-            await self.jules._send_message(session_url, critic_instruction)
+            await self.jules._send_message(jules_session_name, critic_instruction)
 
             console.print("[dim]Waiting for Coder Critic to finish review and push fixes...[/dim]")
 
@@ -558,7 +557,7 @@ class CoderUseCase:
         )
         try:
             if wrap:
-                feedback_template = settings.get_prompt_content(
+                feedback_template = settings.read_template(
                     settings.template_files.audit_feedback_message
                 )
                 if not feedback_template:
@@ -683,7 +682,7 @@ class CoderUseCase:
     def _build_feedback_injection(self, feedback: str, pr_url: str | None) -> str:
         """Build feedback injection block from template."""
         template = str(
-            settings.get_prompt_content(settings.template_files.audit_feedback_injection)
+            settings.read_template(settings.template_files.audit_feedback_injection)
         )
         if not template:
             template = "{{feedback}}"

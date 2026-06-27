@@ -263,7 +263,7 @@ jobs:
         run: uv run mypy .
 
       - name: Run Unit Tests
-        run: uv run pytest tests/unit/ tests/nitpick/unit/
+        run: uv run pytest tests/unit/
 
       - name: Install Playwright Browsers
         env:

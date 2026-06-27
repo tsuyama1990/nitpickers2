@@ -4,9 +4,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.domain_models.execution import ConflictRegistryItem
+from src.domain_models import ConflictRegistryItem
 from src.graph import GraphBuilder
-from src.sandbox import SandboxRunner
 from src.service_container import ServiceContainer
 from src.services.jules_client import JulesClient
 from src.state import IntegrationState
@@ -20,10 +19,9 @@ def repo_path(tmp_path: Path) -> Path:
 @pytest.mark.asyncio
 async def test_integration_graph_conflict_resolution(repo_path: Path) -> None:
     services = ServiceContainer.default()
-    sandbox = MagicMock(spec=SandboxRunner)
     jules = MagicMock(spec=JulesClient)
 
-    builder = GraphBuilder(services, sandbox, jules)
+    builder = GraphBuilder(services, jules=jules)
 
     mock_git_merge = AsyncMock()
     mock_git_merge.side_effect = [

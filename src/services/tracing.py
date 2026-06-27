@@ -3,7 +3,7 @@ from typing import Any
 
 import litellm
 
-from src.domain_models.tracing import LangSmithConfig, TracingMetadata
+from src.domain_models import LangSmithConfig, TracingMetadata
 
 
 class TracingService:

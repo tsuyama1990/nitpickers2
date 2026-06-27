@@ -10,8 +10,7 @@ from dotenv import dotenv_values, load_dotenv
 from pydantic import BaseModel, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from src.domain_models.config import DispatcherConfig
-from src.domain_models.tracing import LangSmithConfig
+from src.domain_models import DispatcherConfig, LangSmithConfig
 
 
 def _validate_env_value(k: str, v: str) -> bool:
@@ -79,14 +78,6 @@ def _load_env() -> None:
 
 
 _load_env()
-
-# Constants
-PROMPT_FILENAME_MAP = {
-    "auditor.md": "AUDITOR_INSTRUCTION.md",
-    "coder.md": "CODER_INSTRUCTION.md",
-    "architect.md": "ARCHITECT_INSTRUCTION.md",
-}
-
 
 def _is_safe_path(p: Path) -> bool:
     """Validates that a path does not contain traversal characters and is within expected bounds."""
@@ -331,7 +322,6 @@ class AuditorConfig(BaseModel):
         default_factory=lambda: [
             "dev_src/",
             "dev_documents/",
-            "tests/nitpick/",
             "tests/ac_cdd/",
             ".github/",
             "pyproject.toml",
@@ -405,7 +395,7 @@ class ToolsConfig(BaseModel):
 
 
 class UATConfig(BaseModel):
-    test_cmd: str = Field(default="uv run pytest tests/uat/")
+    test_cmd: str = Field(default="uv run pytest tests/integration/verify_cycle_03_domain_logic.py tests/unit/verify_cycle_01_domain_logic.py")
     playwright_args: list[str] = Field(
         default_factory=lambda: [
             "--browser=chromium",
@@ -418,50 +408,6 @@ class UATConfig(BaseModel):
     traceback_limit: int = Field(default=1000)
     max_retries: int = Field(default=3)
     db_reset_cmd: str | None = Field(default=None)
-
-
-class SandboxConfig(BaseModel):
-    """Configuration for E2B Sandbox execution"""
-
-    template: str | None = None
-    timeout: int = 3600
-    cwd: str = "/home/user/project"
-    test_cmd: str = "uv run pytest -v --tb=short"
-    max_retries: int = 3
-    command_whitelist: list[str] = [
-        "pytest",
-        "uv run pytest",
-        "uv run pytest -v --tb=short",
-        "lmp",
-        "pw.x",
-        "mpirun",
-    ]
-    allowed_binaries: tuple[str, ...] = ("uv", "pytest", "python", "lmp", "pw.x", "mpirun")
-    dangerous_shell_chars: tuple[str, ...] = (";", "&", "|", "$", "`", "\n", "<", ">")
-    quality_gate_commands: list[list[str]] = Field(
-        default_factory=lambda: [
-            ["uv", "run", "ruff", "check", "--fix", "."],
-            ["uv", "run", "ruff", "format", "."],
-            ["uv", "run", "mypy", "."],
-            ["uv", "run", "pytest"],
-        ]
-    )
-    install_package: str = "pip install --no-cache-dir ruff"
-    dirs_to_sync: list[str] = ["src", "tests", "contracts", "dev_documents", "dev_src"]
-    sandbox_env_cleanup: list[str] = ["UV_PROJECT_ENVIRONMENT"]
-    files_to_sync: list[str] = [
-        "pyproject.toml",
-        "uv.lock",
-        ".auditignore",
-        "README.md",
-    ]
-    allowed_cwd_prefixes: list[str] = Field(
-        default_factory=lambda: os.getenv("SANDBOX_ALLOWED_CWD_PREFIXES", "/home/,/opt/").split(",")
-    )
-    install_cmd: str = "pip install --no-cache-dir ruff"
-    lint_check_cmd: list[str] = ["uv", "run", "ruff", "check", "--fix", "."]
-    type_check_cmd: list[str] = ["uv", "run", "mypy", "src/"]
-    security_check_cmd: list[str] = ["uv", "run", "bandit", "-r", "src/", "-ll"]
 
 
 class ASTAnalyzerConfig(BaseModel):
@@ -527,10 +473,6 @@ class Settings(BaseSettings):
         default_factory=lambda: SecretStr(os.getenv("OPENROUTER_API_KEY", "")),
         description="OpenRouter API key",
     )
-    E2B_API_KEY: SecretStr = Field(
-        default_factory=lambda: SecretStr(os.getenv("E2B_API_KEY", "")),
-        description="E2B Sandbox API key",
-    )
     MAX_RETRIES: int = 10
     GRAPH_RECURSION_LIMIT: int = Field(
         default_factory=lambda: int(os.getenv("GRAPH_RECURSION_LIMIT", "2000"))
@@ -557,12 +499,11 @@ class Settings(BaseSettings):
     max_audit_retries: int = 2
 
     # Graph Node Names
-    required_env_vars: list[str] = ["JULES_API_KEY", "E2B_API_KEY"]
+    required_env_vars: list[str] = ["JULES_API_KEY"]
     known_implicit_secrets: list[str] = [
         "DATABASE_URL",
         "OPENAI_API_KEY",
         "ANTHROPIC_API_KEY",
-        "E2B_API_KEY",
         "JULES_API_KEY",
         "OPENROUTER_API_KEY",
     ]
@@ -580,7 +521,6 @@ class Settings(BaseSettings):
     jules: JulesConfig = Field(default_factory=JulesConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     uat: UATConfig = Field(default_factory=UATConfig)
-    sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
     auditor: AuditorConfig = Field(default_factory=AuditorConfig)
     reviewer: ReviewerConfig = Field(default_factory=ReviewerConfig)
@@ -596,7 +536,6 @@ class Settings(BaseSettings):
 
     # Graph Node Names
     node_uat_evaluate: str = "uat_evaluate"
-    node_sandbox_evaluate: str = "sandbox_evaluate"
     node_coder_critic: str = "coder_critic"
 
     # Auditor model selection: "smart" or "fast"
@@ -637,8 +576,6 @@ class Settings(BaseSettings):
         if not getattr(self, "test_mode", False):
             if not self.JULES_API_KEY or not self.JULES_API_KEY.get_secret_value().strip():
                 missing.append("JULES_API_KEY")
-            if not self.E2B_API_KEY or not self.E2B_API_KEY.get_secret_value().strip():
-                missing.append("E2B_API_KEY")
             if (
                 not self.OPENROUTER_API_KEY
                 or not self.OPENROUTER_API_KEY.get_secret_value().strip()
@@ -708,22 +645,16 @@ class Settings(BaseSettings):
 
         return user_path
 
-    def read_template(self, name: str) -> str:
-        """Read and cache template content."""
-        return self.get_template(name).read_text(encoding="utf-8")
+    def read_template(self, name: str, default: str = "") -> str:
+        """Read template content from src/templates/.
 
-    def get_prompt_content(self, filename: str, default: str = "") -> str:
-        """Reads prompt content."""
-        target_filename = PROMPT_FILENAME_MAP.get(filename, filename)
-        path = self.get_template(target_filename)
-
+        Args:
+            name: Template filename (e.g. 'ARCHITECT_INSTRUCTION.md')
+            default: Fallback string if template is missing (default: "").
+        """
+        path = self.get_template(name)
         if path.exists():
-            return path.read_text(encoding="utf-8").strip()
-
-        fallback_path = Path(self.paths.prompts_dir) / filename
-        if fallback_path.exists():
-            return fallback_path.read_text(encoding="utf-8").strip()
-
+            return path.read_text(encoding="utf-8")
         return default
 
     def get_context_files(self) -> list[str]:

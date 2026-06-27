@@ -12,21 +12,18 @@ from rich.console import Console
 from rich.panel import Panel
 
 from src.config import settings
-from src.domain_models import CycleManifest
-from src.domain_models.tracing import TracingMetadata
+from src.domain_models import CycleManifest, TracingMetadata
 from src.enums import FlowStatus, WorkPhase
 from src.graph import GraphBuilder
 from src.messages import SuccessMessages, ensure_api_key
-from src.nodes.global_refactor import GlobalRefactorNodes
+from src.nodes import GlobalRefactorNodes
 from src.process_runner import ProcessRunner
-from src.sandbox import SandboxRunner
 from src.service_container import ServiceContainer
 from src.services.async_dispatcher import AsyncDispatcher
 from src.services.audit_orchestrator import AuditOrchestrator
 from src.services.conflict_manager import ConflictManager
 from src.services.environment_validator import EnvironmentValidator
 from src.services.git_ops import GitManager
-from src.services.jules_client import JulesClient
 from src.state import CycleState, IntegrationState
 from src.state_manager import StateManager
 from src.utils import KeepAwake, logger
@@ -40,8 +37,7 @@ class WorkflowService:
 
         self.builder = GraphBuilder(
             self.services,
-            SandboxRunner(),
-            self.services.jules if self.services.jules else JulesClient(),
+            self.services.jules,
         )
         self.git = GitManager()
         self._background_tasks: set[asyncio.Task[Any]] = set()
@@ -148,7 +144,7 @@ class WorkflowService:
 
             sys.exit(1)
         finally:
-            await self.builder.cleanup()
+            pass
 
     async def run_cycle(
         self,
@@ -168,7 +164,7 @@ class WorkflowService:
 
             await self._run_single_cycle(cycle_id, resume, auto, start_iter, project_session_id)
         finally:
-            await self.builder.cleanup()
+            pass
 
     def verify_environment_and_observability(self) -> None:
         """Alias for EnvironmentValidator to prevent breaking API."""
@@ -381,10 +377,8 @@ class WorkflowService:
 
         # If we have a custom git_manager (worktree-pinned), we create a specialized graph
         if git_manager:
-            nodes = CycleNodes(self.builder.sandbox, self.builder.jules, git_manager=git_manager)
-            builder = GraphBuilder(
-                self.services, self.builder.sandbox, self.builder.jules, nodes=nodes
-            )
+            nodes = CycleNodes(self.builder.jules, git_manager=git_manager)
+            builder = GraphBuilder(self.services, self.builder.jules, nodes=nodes)
             graph = builder.build_coder_graph()
         else:
             graph = self.builder.build_coder_graph()
@@ -680,7 +674,6 @@ class WorkflowService:
                         await wt_mgr.remove_worktree(cycle_id)
                 except Exception as e:
                     logger.warning(f"Worktree cleanup failed for cycle {cycle_id}: {e}")
-            await self.builder.cleanup()
 
     async def start_session(self, prompt: str, audit_mode: bool, max_retries: int) -> None:
         EnvironmentValidator().verify()
@@ -694,7 +687,7 @@ class WorkflowService:
         }
 
         if audit_mode:
-            jules = self.services.jules or JulesClient()
+            jules: Any = self.services.jules
             orch = AuditOrchestrator(jules)
             try:
                 result = await orch.run_interactive_session(
@@ -714,7 +707,7 @@ class WorkflowService:
                 logger.exception("Session Failed")
                 sys.exit(1)
         else:
-            client = self.services.jules or JulesClient()
+            client: Any = self.services.jules
             try:
                 result = await client.run_session(
                     session_id=settings.current_session_id,
@@ -916,7 +909,10 @@ class WorkflowService:
                     logger.warning("Merge conflicts recorded. Invoking Master Integrator...")
 
             # Global Refactoring Loop (CYCLE08)
-            refactor_node = GlobalRefactorNodes()
+            from src.services.refactor_usecase import RefactorUsecase
+
+            refactor_usecase = RefactorUsecase(jules_client=self.services.jules)
+            refactor_node = GlobalRefactorNodes(usecase=refactor_usecase)
             refactor_state = CycleState(cycle_id="global_refactor")
             refactor_state.project_session_id = sid
             result = await refactor_node.global_refactor_node(refactor_state)

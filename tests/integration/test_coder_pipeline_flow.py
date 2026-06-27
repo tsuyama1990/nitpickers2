@@ -63,16 +63,12 @@ async def test_full_coder_pipeline_success_flow(
         from src.graph_nodes import CycleNodes
 
         real_nodes = CycleNodes(
-            sandbox_runner=mock_services.sandbox,
             jules_client=jules_mock,
             git_manager=mock_services.git_manager,
         )
         mock_cycle_nodes_class.return_value = real_nodes
 
-        # Inject the mock auditor orchestrator into the nodes
-        real_nodes.audit_orchestrator = audit_orchestrator_mock
-
-        builder = GraphBuilder(mock_services, mock_services.sandbox, jules_mock)
+        builder = GraphBuilder(mock_services, jules=jules_mock)
         graph = builder.build_coder_graph()
 
     # 4. Initial State

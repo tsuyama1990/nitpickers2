@@ -15,19 +15,17 @@ dependencies = [
     "pydantic>=2.10.0,<2.12.0",
     "python-dotenv",
     "pydantic-settings",
-    "pydantic-ai>=0.0.18",
     "langchain-core>=0.3.36",
     "langchain>=0.3.19",
     "langgraph>=1.0.5",
-    "e2b-code-interpreter>=2.4.1",
     "httpx[http2]>=0.28.1",
     "google-auth>=2.43.0",
     "litellm>=1.80.11",
     "typer",
     "rich",
     "mypy>=1.19.0",
-    "pydantic-ai-slim[anthropic]>=0.0.18",
     "anthropic>=0.86.0",
+    "jules-agent-sdk>=0.1.1",
 ]
 
 [tool.uv]
@@ -103,3 +101,9 @@ ignore_missing_imports = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
+
+[tool.hatch.build]
+include = [
+    "src/**/*.py",
+    "src/templates/**/*.md",
+]

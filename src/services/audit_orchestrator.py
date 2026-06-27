@@ -5,8 +5,8 @@ from rich.console import Console
 from rich.panel import Panel
 
 from src.config import settings
-from src.services.jules_client import JulesClient
 from src.services.plan_auditor import PlanAuditor
+from src.utils import logger
 
 console = Console()
 
@@ -14,16 +14,17 @@ console = Console()
 class AuditOrchestrator:
     """
     Orchestrates the interactive planning loop between Jules and PlanAuditor.
+    Uses SDK-based methods for all API interactions.
     """
 
     def __init__(
         self,
-        jules_client: JulesClient,
+        jules_client: Any,
         plan_auditor: PlanAuditor | None = None,
     ) -> None:
         self.jules = jules_client
         if not self.jules:
-            msg = "JulesClient must be injected into AuditOrchestrator"
+            msg = "Any must be injected into AuditOrchestrator"
             raise ValueError(msg)
         self.auditor = plan_auditor or PlanAuditor()
 
@@ -57,21 +58,11 @@ class AuditOrchestrator:
             if current_plan_id:
                 plan_details = await self._wait_for_new_plan(session_name, current_plan_id)
             else:
-                activity = await self.jules.wait_for_activity_type(
-                    session_name,
-                    target_type="planGenerated",
-                    timeout_seconds=300,
-                )
-
-                if not activity:
-                    t_msg = "Timed out waiting for plan generation."
-                    raise TimeoutError(t_msg)
-
-                plan_details = activity.get("planGenerated", {})
+                plan_details = await self._wait_for_first_plan(session_name)
 
             if not plan_details:
-                v_msg = "Plan activity found but no details."
-                raise ValueError(v_msg)
+                t_msg = "Timed out waiting for plan generation."
+                raise TimeoutError(t_msg)
 
             plan_id = plan_details.get("planId")
             current_plan_id = plan_id
@@ -119,9 +110,54 @@ class AuditOrchestrator:
         u_msg = "Session ended unexpectedly."
         raise RuntimeError(u_msg)
 
+    async def _find_plan_in_activities(
+        self, session_name: str, skip_plan_id: str | None = None
+    ) -> dict[str, Any] | None:
+        """Fetch activities and find a planGenerated activity.
+
+        Args:
+            session_name: Session resource name.
+            skip_plan_id: If set, skip plans with this ID (for finding new plans).
+
+        Returns:
+            planGenerated details dict or None.
+        """
+        try:
+            activities = await self.jules.list_activities(session_name)
+            for act in activities:
+                if act.plan_generated:
+                    plan_data = act.plan_generated
+                    plan = plan_data.get("plan", {})
+                    plan_id = plan.get("id") or plan_data.get("planId")
+                    if skip_plan_id and plan_id == skip_plan_id:
+                        continue
+                    return dict(plan_data)
+        except Exception as e:
+            logger.warning(f"Failed to fetch activities for plan: {e}")
+        return None
+
+    async def _wait_for_first_plan(
+        self, session_name: str, timeout_seconds: int = 300
+    ) -> dict[str, Any] | None:
+        """Poll until a first plan appears in activities."""
+        base_delay = 10
+        max_delay = 60
+        current_delay = base_delay
+
+        try:
+            async with asyncio.timeout(timeout_seconds):
+                while True:
+                    result = await self._find_plan_in_activities(session_name)
+                    if result:
+                        return result
+                    await asyncio.sleep(current_delay)
+                    current_delay = min(current_delay * 2, max_delay)
+        except TimeoutError:
+            return None
+
     async def _wait_for_new_plan(
         self, session_name: str, current_plan_id: str, timeout_seconds: int = 300
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | None:
         """Helper to poll until a plan with a different ID appears."""
         console.print("[dim]Waiting for revised plan...[/dim]")
 
@@ -132,11 +168,12 @@ class AuditOrchestrator:
         try:
             async with asyncio.timeout(timeout_seconds):
                 while True:
-                    latest = await self.jules.get_latest_plan(session_name)
-                    if latest and latest.get("planId") != current_plan_id:
-                        return dict(latest)
+                    result = await self._find_plan_in_activities(
+                        session_name, skip_plan_id=current_plan_id
+                    )
+                    if result:
+                        return result
                     await asyncio.sleep(current_delay)
                     current_delay = min(current_delay * 2, max_delay)
         except TimeoutError:
-            t_msg = "Timed out waiting for revised plan."
-            raise TimeoutError(t_msg) from None
+            return None

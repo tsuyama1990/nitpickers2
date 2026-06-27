@@ -35,7 +35,7 @@ class BaseJulesUseCase:
         else:
             template = settings.template_files.coder_instruction
 
-        instruction = settings.get_prompt_content(template)
+        instruction = settings.read_template(template)
         if not instruction:
             instruction = "Implement the requested features."
 

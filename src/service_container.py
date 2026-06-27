@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Any
 
 from src.services.artifacts import ArtifactManager
 from src.services.contracts import ContractManager
@@ -13,7 +14,7 @@ class ServiceContainer:
     file_patcher: FilePatcher
     contract_manager: ContractManager
     artifact_manager: ArtifactManager
-    jules: JulesClient | None = None
+    jules: Any
     reviewer: LLMReviewer | None = None
     git: GitManager | None = None
 

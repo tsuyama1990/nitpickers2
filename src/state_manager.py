@@ -8,9 +8,12 @@ from pathlib import Path
 from typing import Any
 
 from .domain_models import CycleManifest, ProjectManifest
-from .session_manager import SessionValidationError
 
 logger = logging.getLogger(__name__)
+
+
+class SessionValidationError(Exception):
+    """Raised when session or cycle validation fails."""
 
 
 class StateManager:

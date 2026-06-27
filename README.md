@@ -51,9 +51,10 @@ flowchart TD
 
 - Python >= 3.12, < 3.14
 - `uv` Package Manager
-- Docker
 - Git
 - API Keys (e.g., OPENROUTER_API_KEY, E2B_API_KEY, JULES_API_KEY)
+
+> **Docker is optional.** NITPICKERS runs natively via ``uvx`` or ``uv run``. Docker is only needed if you require a fully isolated execution environment.
 
 ## Installation & Setup
 
@@ -69,20 +70,57 @@ cp .env.example .env
 
 ## Usage
 
-Start by initializing the current directory structure:
+### Option 1: uvx (recommended)
+
+Run directly from PyPI without cloning the repository — works in any environment (local, CI/CD, DevContainer, remote):
+
 ```bash
+# Initialize a project
+uvx nitpickers nitpick init
+
+# Generate development cycles
+uvx nitpickers nitpick gen-cycles
+
+# Run the full pipeline
+uvx nitpickers nitpick run-pipeline
+```
+
+*``uvx`` creates an isolated temporary environment automatically — no dependency conflicts with your project.*
+
+### Option 2: uv run (local development)
+
+If you have the repository cloned:
+
+```bash
+# Initialize project
 uv run nitpick init
 ```
 *Note: This generates boilerplate definitions. You must customize `dev_documents/ALL_SPEC.md` prior to the next step.*
 
-Generate development cycles automatically based on the specification:
 ```bash
+# Generate development cycles automatically based on the specification
 uv run nitpick gen-cycles
+
+# Execute the full orchestration pipeline covering all 5 phases
+uv run nitpick run-pipeline
 ```
 
-Execute the full orchestration pipeline covering all 5 phases:
+### Option 3: Docker (isolated execution)
+
+If you need a fully isolated environment (e.g., clean-room testing):
+
 ```bash
-uv run nitpick run-pipeline
+# Build the image (once)
+docker compose build
+
+# Run commands
+docker compose run --rm nitpick nitpick run-pipeline
+```
+
+Or use the setup script to register a convenient alias:
+```bash
+bash setup.sh
+nitpick run-pipeline
 ```
 
 ## Development Workflow

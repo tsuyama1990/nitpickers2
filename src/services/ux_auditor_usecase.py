@@ -8,7 +8,7 @@ from pydantic import ValidationError
 from rich.console import Console
 
 from src.config import settings
-from src.domain_models.ux_audit_report import UXAuditReport
+from src.domain_models import UXAuditReport
 from src.state import CycleState
 from src.utils import logger
 
@@ -22,7 +22,7 @@ class UxAuditorUseCase:
     """
 
     def __init__(self) -> None:
-        self.instruction_path = Path("src/templates/UX_AUDITOR_INSTRUCTION.md")
+        pass
 
     async def execute(self, state: CycleState) -> dict[str, Any]:
         console.print("\n[bold cyan]Starting UX/UI Audit...[/bold cyan]")
@@ -42,14 +42,12 @@ class UxAuditorUseCase:
             console.print("[dim]No screenshots found in artifacts. Skipping UX Audit.[/dim]")
             return {"uat": {"ux_audit_report": self._empty_report()}}
 
-        if not self.instruction_path.exists():
-            logger.warning(f"UX Auditor instructions missing at {self.instruction_path}")
+        instruction_text = settings.read_template("UX_AUDITOR_INSTRUCTION.md")
+        if not instruction_text:
+            logger.warning("UX Auditor instructions missing, skipping UX Audit.")
             return {"uat": {"ux_audit_report": self._empty_report()}}
 
         # 2. Prepare the LLM Context
-        with self.instruction_path.open("r", encoding="utf-8") as f:
-            instruction_text = f.read()
-
         content_parts: list[dict[str, Any]] = await self._prepare_content_parts(
             instruction_text, screenshots
         )

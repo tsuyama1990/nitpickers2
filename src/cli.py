@@ -1,6 +1,7 @@
 """CLI module."""
 
 import asyncio
+import os
 from pathlib import Path
 
 import typer
@@ -14,17 +15,32 @@ app = typer.Typer()
 console = Console()
 
 
+def _resolve_templates_path() -> str:
+    """Resolve the system prompt templates directory.
+
+    Resolution priority:
+    1. ``NITPICK_TEMPLATE_PATH`` environment variable (set by Docker ``Dockerfile``)
+    2. ``importlib.resources`` — works for both ``uvx`` (installed package) and ``uv run`` (local dev)
+    3. Filesystem fallback relative to this file (legacy local dev)
+    """
+    env_path = os.environ.get("NITPICK_TEMPLATE_PATH")
+    if env_path:
+        return env_path
+
+    try:
+        from importlib import resources
+
+        return str(resources.files("src").joinpath("templates"))
+    except (ImportError, TypeError, ModuleNotFoundError):
+        return str(Path(__file__).parent / "templates")
+
+
 @app.command()
 def init() -> None:
     """Initialize a new target project for Nitpick."""
     console.print("[bold blue]Initializing new Nitpick project...[/bold blue]")
     manager = ProjectManager()
-
-    # Try Docker path first, then fallback to local templates directory
-
-    templates_path = "/opt/nitpick/templates/"
-    if not Path(templates_path).exists():
-        templates_path = str(Path(__file__).parent / "templates")
+    templates_path = _resolve_templates_path()
 
     try:
         asyncio.run(manager.initialize_project(templates_path))

@@ -2,8 +2,7 @@ from pathlib import Path
 
 from src.config import settings
 from src.process_runner import ProcessRunner
-from src.utils import logger
-from src.utils_sanitization import redact_secrets
+from src.utils import logger, redact_secrets
 
 
 class BaseGitManager:

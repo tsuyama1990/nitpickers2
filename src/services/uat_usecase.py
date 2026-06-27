@@ -3,14 +3,13 @@ import shlex
 from typing import Any
 
 from src.config import settings
+from src.domain_models import UatExecutionState
 from src.domain_models.multimodal_artifact_schema import MultiModalArtifact
-from src.domain_models.uat_execution_state import UatExecutionState
 from src.enums import FlowStatus
-from src.sandbox import SandboxRunner
+from src.process_runner import ProcessRunner
 from src.services.git_ops import GitManager
 from src.state import CycleState
-from src.utils import logger
-from src.utils_sanitization import redact_secrets
+from src.utils import logger, redact_secrets
 
 
 class UatUseCase:
@@ -101,7 +100,7 @@ class UatUseCase:
                         logger.warning(f"Failed to parse artifact {base_name}: {e}")
         return artifacts
 
-    async def execute(self, state: CycleState) -> dict[str, Any]:  # noqa: C901
+    async def execute(self, state: CycleState) -> dict[str, Any]:
         """
         Executes the UAT Evaluation node.
 
@@ -110,44 +109,23 @@ class UatUseCase:
         """
         logger.info("Running UAT Evaluation...")
 
-        # Dynamic Execution using SandboxRunner for E2B Sandbox
-        runner = SandboxRunner()
-        if settings.sandbox.template:
-            pass
+        # Dynamic Execution using ProcessRunner for local process execution
+        runner = ProcessRunner()
 
         # Ensure we run the exact UAT tests folder with configurable browser args
         base_cmd = shlex.split(settings.uat.test_cmd)
         cmd = [*base_cmd, *settings.uat.playwright_args]
 
-        # Security: whitelist allowed binaries to prevent command injection
-        if not cmd or cmd[0] not in settings.sandbox.allowed_binaries:
-            msg = f"Unauthorized command binary: {cmd[0] if cmd else 'empty'}"
-            raise ValueError(msg)
-
-        # Security: prevent argument injection via shell metacharacters
-        for arg in settings.uat.playwright_args:
-            if any(char in arg for char in settings.sandbox.dangerous_shell_chars):
-                msg = f"Dangerous character detected in Playwright argument: {arg}"
-                raise ValueError(msg)
-
         # Ensure a clean state before executing dynamic UAT
         if settings.uat.db_reset_cmd:
-            logger.debug("Resetting sandbox database state...")
+            logger.debug("Resetting database state...")
             cmd_str = settings.uat.db_reset_cmd
             if cmd_str:
                 reset_cmd = shlex.split(cmd_str)
-                # Apply identical validation to db_reset_cmd
-                if not reset_cmd or reset_cmd[0] not in settings.sandbox.allowed_binaries:
-                    msg = f"Unauthorized DB reset command binary: {reset_cmd[0] if reset_cmd else 'empty'}"
-                    raise ValueError(msg)
-                for arg in reset_cmd:
-                    if any(char in arg for char in settings.sandbox.dangerous_shell_chars):
-                        msg = f"Dangerous character detected in DB reset command argument: {arg}"
-                        raise ValueError(msg)
                 await runner.run_command(reset_cmd, check=True)
 
         logger.debug(f"Executing: {redact_secrets(' '.join(cmd))}")
-        stdout, stderr, exit_code = await runner.run_command(cmd, check=False)
+        stdout, stderr, exit_code, _timeout = await runner.run_command(cmd, check=False)
 
         if exit_code != 0:
             logger.error(f"UAT Execution Failed with exit code {exit_code}.")

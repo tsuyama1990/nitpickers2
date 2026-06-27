@@ -18,6 +18,11 @@ class CommitteeUseCase:
 
     async def execute(self, state: CycleState) -> dict[str, Any]:  # noqa: PLR0911
         """Node for Managing the Committee of Auditors."""
+        # Lint failures bypass review counting (pre-review gate)
+        if getattr(state, "lint_failed", False):
+            console.print("[yellow]Lint check failed. Returning to coder without counting as review.[/yellow]")
+            return {"status": FlowStatus.RETRY_FIX, "lint_failed": False}
+
         if state.status == FlowStatus.WAITING_FOR_JULES:
             console.print(
                 "[bold yellow]No new commit detected. Waiting for Jules to complete work...[/bold yellow]"

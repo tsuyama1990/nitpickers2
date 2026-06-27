@@ -1,12 +1,14 @@
 import base64
+import json
+import subprocess
+from pathlib import Path
 
 import anyio
 import litellm
 from pydantic import ValidationError
 
 from src.domain_models import AuditorReport, FixPlanSchema, UatExecutionState
-from src.utils import logger
-from src.utils_json import extract_json_from_text
+from src.utils import extract_json_from_text, logger
 
 
 class LLMReviewer:
@@ -15,10 +17,7 @@ class LLMReviewer:
     Uses litellm to communicate with various LLM providers (OpenRouter, Gemini, etc.).
     """
 
-    def __init__(self, sandbox_runner: object | None = None) -> None:
-        # sandbox_runner is accepted for dependency injection compatibility
-        # even if not strictly used by this class (files are passed as content)
-        self.sandbox = sandbox_runner
+    def __init__(self) -> None:
 
         import os
 
@@ -32,6 +31,51 @@ class LLMReviewer:
         # We rely on litellm's environment variable handling for API keys.
         # Ensure litellm is verbose enough for debugging if needed.
         # DO NOT set suppress_instrumentation = True as it can interfere with callbacks.
+
+    @staticmethod
+    async def _get_directory_tree(root_path: str | Path | None = None, max_depth: int = 3) -> str:
+        """Generate a directory tree string for the project.
+
+        Uses `tree` command if available, otherwise falls back to a simple pathlib walk.
+        Only includes source directories (src/, tests/, tutorials/) up to max_depth.
+        """
+        root: Path = Path(root_path) if root_path else Path.cwd()
+        include_prefixes = ("src/", "tests/", "tutorials/", "dev_documents/")
+
+        try:
+            result = await anyio.to_thread.run_sync(
+                lambda: subprocess.run(
+                    ["tree", str(root), "-L", str(max_depth),
+                     "--charset", "utf-8", "-I", "__pycache__|*.pyc|.git|.venv|venv|*.egg-info|node_modules"],
+                    capture_output=True, text=True, timeout=10,
+                )
+            )
+            if result.returncode == 0:
+                lines = result.stdout.splitlines()
+                # Only keep lines matching include prefixes
+                filtered = [lines[0]]  # top-level dir name
+                for line in lines[1:]:
+                    stripped = line.strip()
+                    # Check if the path (after tree chars) matches our prefixes
+                    path_part = stripped.lstrip("│├──└─ ")
+                    if path_part.startswith(include_prefixes) or not path_part:
+                        filtered.append(line)
+                return "\n".join(filtered[:80])  # cap at 80 lines
+        except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+            pass
+
+        # Fallback: simple pathlib walk
+        lines = [f"{Path(root).name}/"]
+        root_path = Path(root)
+        for prefix in include_prefixes:
+            p = root_path / prefix.rstrip("/")
+            if p.exists():
+                for child in sorted(p.rglob("*"))[:60]:
+                    if child.is_dir():
+                        lines.append(f"    {child.relative_to(root_path)}/")
+                    else:
+                        lines.append(f"    {child.relative_to(root_path)}")
+        return "\n".join(lines)
 
     async def _validate_paths(
         self, target_files: dict[str, str], context_docs: dict[str, str]
@@ -78,7 +122,9 @@ class LLMReviewer:
     ) -> str:
         """
         Sends file contents and instructions to the LLM for review.
-        Validates the output strictly against the AuditorReport Pydantic schema.
+        Uses response_format=AuditorReport for structured output (stable Pydantic compliance).
+        Falls back to text-based JSON extraction if structured output is not supported by the model.
+        Includes directory tree for structural context.
         """
 
         validation_error = await self._validate_paths(target_files, context_docs)
@@ -90,24 +136,28 @@ class LLMReviewer:
             f"LLMReviewer: preparing structured review for {total_files} files using model {model}"
         )
 
-        # specific prompt construction with strict separation
-        prompt = self._construct_prompt(target_files, context_docs, instruction)
+        # 1. Add directory tree for structural context
+        directory_tree = await self._get_directory_tree()
+        logger.info(f"LLMReviewer: directory tree generated ({len(directory_tree)} chars)")
+
+        # 2. Build prompt with directory tree + context/target separation
+        prompt = self._construct_prompt(
+            target_files, context_docs, instruction, directory_tree=directory_tree
+        )
 
         # Estimate tokens (approx 4 chars per token)
         estimated_tokens = len(prompt) // 4
         logger.info(f"LLMReviewer: estimated payload size: {estimated_tokens} tokens")
 
-        if estimated_tokens > 100000:  # Threshold for most common models
+        if estimated_tokens > 100000:
             logger.warning(
-                f"LLMReviewer: extremely large payload detected ({estimated_tokens} tokens). This may cause timeouts or 500 errors on some providers."
+                f"LLMReviewer: extremely large payload detected ({estimated_tokens} tokens)."
             )
 
-        # Schema injection to guarantee correct JSON structure
-        import json
-
+        # 3. Schema injection as fallback text hint
         schema_prompt = json.dumps(AuditorReport.model_json_schema(), indent=2)
 
-        # Retry logic (up to 2 retries, total 3 attempts)
+        # 4. Retry logic with structured output first, then fallback
         for attempt in range(3):
             try:
                 if attempt > 0:
@@ -115,48 +165,78 @@ class LLMReviewer:
                     logger.info(f"Retrying LLM review in {delay}s...")
                     await anyio.sleep(delay)
 
-                response = await litellm.acompletion(
-                    model=model,
-                    messages=[
+                # Try structured output (response_format) first
+                # This forces the model to output valid JSON matching AuditorReport schema
+                kwargs: dict[str, object] = {
+                    "model": model,
+                    "messages": [
                         {
                             "role": "system",
                             "content": (
                                 "You are an automated code reviewer. You must strictly follow the "
-                                "provided instructions and only review the target code. You MUST return valid JSON. "
-                                f"Your response MUST exactly match the following JSON schema:\n```json\n{schema_prompt}\n```\n"
+                                "provided instructions and only review the target code. "
+                                "You MUST return valid JSON matching the required schema. "
                                 "IMPORTANT: Provide a comprehensive review. Report at least 3 critical issues if they exist, "
-                                "but limit your 'issues' array to a MAXIMUM of 10 issues to prevent context overflow. "
-                                "Keep your 'thought' field EXTREMELY concise (max 2 sentences) to ensure the JSON structure is completed within the token limit."
+                                "but limit your 'issues' array to a MAXIMUM of 10 issues. "
+                                f"The expected JSON schema is:\n```json\n{schema_prompt}\n```\n"
                             ),
                         },
                         {"role": "user", "content": prompt},
                     ],
-                    temperature=0.0,  # Deterministic output for reviews
-                    max_tokens=16384,  # Increased to prevent JSON truncation on large reviews
-                )
+                    "temperature": 0.0,
+                    "max_tokens": 16384,
+                }
+
+                # litellm supports response_format with Pydantic model for compatible models
+                # Not all models support structured output, so we try and fallback
+                try:
+                    kwargs["response_format"] = AuditorReport
+                    response = await litellm.acompletion(**kwargs)
+                except Exception:
+                    # Model doesn't support structured output → fallback to text mode
+                    logger.info(
+                        f"LLMReviewer: structured output not supported by {model}, "
+                        "falling back to text-based JSON extraction."
+                    )
+                    del kwargs["response_format"]
+                    response = await litellm.acompletion(**kwargs)
 
                 content_str = response.choices[0].message.content
                 if content_str is None:
-                    # Specific log for missing content without raising but triggering retry or fallback
                     logger.warning(f"LLMReviewer: received empty content (None) for model {model}")
-                    logger.debug(f"DEBUG Response Object: {response}")
-
                     if attempt == 2:
-                        return f"-> REVIEW_FAILED\n\n### Critical Issues\n- **Issue**: SYSTEM_ERROR: LLM API returned empty content. \n  - Location: `Unknown` (Response: {response})\n  - Concrete Fix: Check if the model {model} is available and supports the request."
-                    continue  # Try again
+                        return (
+                            "-> REVIEW_FAILED\n\n### Critical Issues\n- **Issue**: SYSTEM_ERROR: "
+                            f"LLM API returned empty content. \n  - Location: `Unknown` (Response: {response})"
+                            "\n  - Concrete Fix: Check if the model is available and supports the request."
+                        )
+                    continue
 
-                # Parse the response safely into our robust Pydantic model
-                clean_json = extract_json_from_text(content_str)
-                report = AuditorReport.model_validate_json(clean_json)
+                # Parse with Pydantic validation (works for both structured and fallback modes)
+                try:
+                    report = AuditorReport.model_validate_json(content_str)
+                except ValidationError:
+                    # Structured output may still fail; try text extraction
+                    clean_json = extract_json_from_text(content_str)
+                    report = AuditorReport.model_validate_json(clean_json)
+
                 return self._format_as_markdown(report)
 
             except (ValidationError, Exception) as e:
                 logger.warning(f"LLMReviewer attempt {attempt + 1} failed: {e}")
                 if attempt == 2:
                     logger.error(f"LLMReviewer failed completely after 3 attempts. Last error: {e}")
-                    return f"-> REVIEW_FAILED\n\n### Critical Issues\n- **Issue**: SYSTEM_ERROR: LLM API generated invalid JSON or failed. ({e})\n  - Location: `Unknown` (Line Unknown)\n  - Concrete Fix: Ensure your changes are simple and try again."
+                    return (
+                        "-> REVIEW_FAILED\n\n### Critical Issues\n- **Issue**: SYSTEM_ERROR: "
+                        f"LLM API generated invalid JSON or failed. ({e})\n  - Location: `Unknown`\n"
+                        "  - Concrete Fix: Ensure your changes are simple and try again."
+                    )
 
-        return "-> REVIEW_FAILED\n\n### Critical Issues\n- **Issue**: SYSTEM_ERROR: Review loop failed unexpectedly\n  - Location: `Unknown`\n  - Concrete Fix: Ensure your changes are simple and try again."
+        return (
+            "-> REVIEW_FAILED\n\n### Critical Issues\n- **Issue**: SYSTEM_ERROR: "
+            "Review loop failed unexpectedly\n  - Location: `Unknown`\n"
+            "  - Concrete Fix: Ensure your changes are simple and try again."
+        )
 
     async def diagnose_uat_failure(
         self,
@@ -170,7 +250,7 @@ class LLMReviewer:
         """
         logger.info(f"LLMReviewer: starting UAT failure diagnosis using {model}")
 
-        from src.utils_sanitization import sanitize_for_llm
+        from src.utils import sanitize_for_llm
 
         # Robust sanitization to prevent prompt injection and handle API payloads securely
         safe_stdout = sanitize_for_llm(uat_state.stdout)
@@ -234,12 +314,12 @@ class LLMReviewer:
                         f"diagnose_uat_failure: received empty content (None) for model {model}"
                     )
                     if attempt == 2:
-                        from src.domain_models.fix_plan_schema import FilePatch
+                        from src.domain_models import FilePatchEntry as FixFilePatch
 
                         return FixPlanSchema(
                             defect_description=f"SYSTEM_ERROR: LLM API returned empty content for model {model}.",
                             patches=[
-                                FilePatch(
+                                FixFilePatch(
                                     target_file="Unknown",
                                     git_diff_patch="Please check model availability.",
                                 )
@@ -255,13 +335,12 @@ class LLMReviewer:
                     logger.error(
                         f"diagnose_uat_failure failed completely after 3 attempts. Last error: {e}"
                     )
-                    from src.domain_models.fix_plan_schema import FilePatch
+                    from src.domain_models import FilePatchEntry as FixFilePatch
 
-                    # Fallback schema to not break the pipeline entirely, though we ideally raise
                     return FixPlanSchema(
                         defect_description=f"SYSTEM_ERROR: LLM API generated invalid JSON or failed. {e}",
                         patches=[
-                            FilePatch(
+                            FixFilePatch(
                                 target_file="Unknown",
                                 git_diff_patch="Please review the UAT logs manually and provide a fix.",
                             )
@@ -269,12 +348,12 @@ class LLMReviewer:
                     )
 
         # Unreachable but mypy needs it
-        from src.domain_models.fix_plan_schema import FilePatch
+        from src.domain_models import FilePatchEntry as FixFilePatch
 
         return FixPlanSchema(
             defect_description="SYSTEM_ERROR: Review loop failed unexpectedly.",
             patches=[
-                FilePatch(
+                FixFilePatch(
                     target_file="Unknown", git_diff_patch="Please review the UAT logs manually."
                 )
             ],
@@ -288,8 +367,16 @@ class LLMReviewer:
 
         if report.issues:
             feedback += "### Critical Issues\n"
+            fatal_count = sum(1 for i in report.issues if i.severity == "fatal")
+            warning_count = sum(1 for i in report.issues if i.severity == "warning")
+            feedback += f"**{fatal_count} FATAL, {warning_count} WARNING**\n\n"
+
             for issue in report.issues:
-                feedback += f"- **[{issue.category.upper()}]**: {issue.issue_description}\n"
+                severity_badge = "🔴" if issue.severity == "fatal" else "🟡"
+                feedback += (
+                    f"- {severity_badge} **[{issue.category.upper()}][{issue.severity.upper()}]**: "
+                    f"{issue.issue_description}\n"
+                )
                 feedback += f"  - **Location**: `{issue.file_path}`\n"
                 feedback += (
                     f"  - **Target Snippet**:\n    ```\n    {issue.target_code_snippet}\n    ```\n"
@@ -299,11 +386,29 @@ class LLMReviewer:
         return feedback
 
     def _construct_prompt(
-        self, target_files: dict[str, str], context_docs: dict[str, str], instruction: str
+        self,
+        target_files: dict[str, str],
+        context_docs: dict[str, str],
+        instruction: str,
+        directory_tree: str = "",
     ) -> str:
         """
         Format the prompt with strict Context/Target separation.
+        Includes directory tree for structural context.
         """
+
+        # 0. Directory Tree (structural context)
+        tree_section = ""
+        if directory_tree:
+            tree_section = f"""
+###################
+
+📁 PROJECT STRUCTURE
+
+```
+{directory_tree}
+```
+"""
 
         # 1. Context Section (Specs)
         context_section = ""
@@ -313,14 +418,19 @@ class LLMReviewer:
         # 2. Target Section (Code)
         target_section = ""
         for name, content in target_files.items():
-            # Add python hint for .py files
-            lang = "python" if name.endswith(".py") else ""
+            # Detect git diff format from content, not filename
+            if content.startswith(("diff --git", "--- a/")):
+                lang = "diff"
+            elif name.endswith(".py"):
+                lang = "python"
+            else:
+                lang = ""
             target_section += f"\nFile: {name} (AUDIT TARGET)\n```{lang}\n{content}\n```\n"
 
         # 3. Assemble Prompt
         return f"""
 {instruction}
-
+{tree_section}
 ###################
 
 🚫 READ-ONLY CONTEXT (GROUND TRUTH)

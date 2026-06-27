@@ -1,3 +1,4 @@
+import contextlib
 from pathlib import Path
 
 from src.process_runner import ProcessRunner
@@ -19,10 +20,8 @@ class DependencyManager:
 
         # Smart dependency check to avoid 'ambiguous update' errors in uv
         pyproject_content = ""
-        try:
+        with contextlib.suppress(Exception):
             pyproject_content = (Path.cwd() / "pyproject.toml").read_text()
-        except Exception:
-            pass
 
         deps_to_add = []
         for dep in ["ruff", "mypy", "pytest", "pytest-cov", "pre-commit"]:

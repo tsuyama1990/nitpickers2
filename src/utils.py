@@ -11,8 +11,6 @@ from langchain_core.callbacks import BaseCallbackHandler
 from rich.console import Console
 from rich.logging import RichHandler
 
-from .utils_sanitization import redact_secrets
-
 console = Console()
 
 current_cycle_id: contextvars.ContextVar[str] = contextvars.ContextVar("cycle_id", default="CORE")
@@ -249,3 +247,108 @@ class KeepAwake:
                 if self.process.poll() is None:
                     self.process.kill()
             logger.info("💤 System sleep inhibition released.")
+
+
+# ---------------------------------------------------------------------------
+#  JSON extraction  (consolidated from utils_json.py)
+# ---------------------------------------------------------------------------
+
+import json as _json
+import re as _re
+
+_THOUGHT_BLOCK_RE = _re.compile(r"<thought>.*?</thought>", flags=_re.DOTALL | _re.IGNORECASE)
+_TRUNCATED_THOUGHT_BLOCK_RE = _re.compile(r"<thought>.*", flags=_re.DOTALL | _re.IGNORECASE)
+_MARKDOWN_JSON_BLOCK_RE = _re.compile(
+    r"```(?:json|python)?\s*(.*?)\s*```", flags=_re.DOTALL | _re.IGNORECASE
+)
+
+
+def _repair_json(json_str: str) -> str:
+    """Simple JSON repair for truncated EOF strings"""
+    stack: list[str] = []
+    in_string = False
+    escaped = False
+    repaired = ""
+    for char in json_str:
+        if char == '"' and not escaped:
+            in_string = not in_string
+        if not in_string:
+            if char in {"{", "["}:
+                stack.append(char)
+            elif (char == "}" and stack and stack[-1] == "{") or (
+                char == "]" and stack and stack[-1] == "["
+            ):
+                stack.pop()
+        repaired += char
+        escaped = char == "\\" and not escaped
+    if in_string:
+        repaired += '"'
+    while stack:
+        last = stack.pop()
+        repaired += "}" if last == "{" else "]"
+    return repaired
+
+
+def extract_json_from_text(content: str) -> str:
+    """Extracts JSON from an LLM response, stripping markdown and <thought> tags."""
+    content = _THOUGHT_BLOCK_RE.sub("", content)
+    content = _TRUNCATED_THOUGHT_BLOCK_RE.sub("", content)
+
+    blocks = _MARKDOWN_JSON_BLOCK_RE.findall(content)
+    for block in blocks:
+        repaired = _repair_json(block.strip())
+        try:
+            parsed = _json.loads(repaired)
+            if isinstance(parsed, (dict, list)):
+                return repaired
+        except _json.JSONDecodeError:
+            continue
+
+    start_idx = content.find("{")
+    if start_idx != -1:
+        json_str = content[start_idx:].strip()
+        repaired = _repair_json(json_str)
+        try:
+            parsed = _json.loads(repaired)
+            if isinstance(parsed, (dict, list)):
+                return repaired
+        except _json.JSONDecodeError:
+            pass
+        return repaired
+
+    return _repair_json(content.strip())
+
+
+# ---------------------------------------------------------------------------
+#  Sanitization  (consolidated from utils_sanitization.py)
+# ---------------------------------------------------------------------------
+
+import unicodedata as _unicodedata
+
+
+def redact_secrets(content: str) -> str:
+    """Redacts common API keys and sensitive patterns from the text."""
+    patterns = [
+        (_re.compile(r"(sk-[a-zA-Z0-9-]{24,})"), "[REDACTED_API_KEY]"),
+        (_re.compile(r"(AIza[0-9A-Za-z-_]{35})"), "[REDACTED_GOOGLE_KEY]"),
+        (_re.compile(r"(pass(?:word)?[:=]\s*)(\S+)"), r"\1[REDACTED_PASSWORD]"),
+    ]
+    redacted = content
+    for pattern, replacement in patterns:
+        redacted = pattern.sub(replacement, redacted)
+    return redacted
+
+
+def sanitize_for_llm(content: str, max_length: int = 100000) -> str:
+    """Sanitizes arbitrary text before inclusion in LLM prompts."""
+    if not content:
+        return ""
+    redacted = redact_secrets(content)
+    truncated = redacted[:max_length]
+    escaped = truncated.replace("```", "\\`\\`\\`")
+    safe_text = "".join(
+        char
+        for char in escaped
+        if not _unicodedata.category(char).startswith("C") or char in "\n\r\t"
+    )
+    return str(safe_text)

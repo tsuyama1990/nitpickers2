@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Any
 
+import anyio
 from rich.console import Console
 
 from src.config import settings
@@ -25,17 +26,42 @@ class AuditorUseCase:
         jules_client: JulesClient,
         git_manager: GitManager,
         llm_reviewer: LLMReviewer,
-        sandbox_runner: Any = None,
     ) -> None:
         self.jules = jules_client
         self.git = git_manager
         self.llm_reviewer = llm_reviewer
-        self.sandbox = sandbox_runner
+
+    async def _check_lint(self, file_paths: list[str]) -> str | None:
+        """Run ruff check on changed files before LLM review.
+
+        Returns formatted error message if lint fails, None if clean.
+        """
+        if not file_paths:
+            return None
+        try:
+            import subprocess
+            proc = await anyio.to_thread.run_sync(
+                lambda: subprocess.run(
+                    ["uv", "run", "ruff", "check", *file_paths],
+                    capture_output=True, text=True, timeout=60,
+                )
+            )
+            if proc.returncode != 0 and proc.stdout.strip():
+                return (
+                    "-> REVIEW_FAILED\n\n"
+                    "### Lint Errors (Pre-Review Gate)\n"
+                    "Fix these and resubmit (this does not count as a review attempt):\n\n"
+                    f"```\n{proc.stdout[:2000]}\n```\n"
+                )
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"Lint check failed: {e}")
+        return None
 
     async def _read_files(self, file_paths: list[str]) -> dict[str, str]:
         """Helper to read files from the local filesystem (isolated if worktree set)."""
-        import anyio
-
         result = {}
         for path_str in file_paths:
             p = anyio.Path(path_str)
@@ -51,6 +77,37 @@ class AuditorUseCase:
                     console.print(f"[yellow]Warning: Could not read {path_str}: {e}[/yellow]")
         return result
 
+    async def _get_git_diff(self, base_branch: str, file_paths: list[str]) -> dict[str, str]:
+        """Get git diff for changed files instead of full file content.
+
+        This dramatically reduces token usage compared to _read_files().
+        Falls back to full file content if git diff fails.
+        """
+        result = {}
+        try:
+            for path_str in file_paths:
+                try:
+                    diff_output = await self.git._run_git(
+                        ["diff", f"{base_branch}...HEAD", "--", path_str],
+                        check=True,
+                    )
+                    if diff_output and diff_output.strip():
+                        result[path_str] = diff_output
+                        continue
+                except Exception:
+                    pass
+
+                # Fallback: file might be new (untracked) or git error - read full content
+                p = anyio.Path(path_str)
+                if self.git.cwd and not p.is_absolute():
+                    p = anyio.Path(self.git.cwd) / path_str
+                if await p.exists():
+                    result[path_str] = await p.read_text(encoding="utf-8")
+        except Exception as e:
+            console.print(f"[yellow]Warning: git diff failed, falling back to full file read: {e}[/yellow]")
+            result = await self._read_files(file_paths)
+        return result
+
     async def execute(self, state: CycleState) -> dict[str, Any]:  # noqa: C901, PLR0915
         """Runs the auditor logic, static analysis, and prepares LLM reviewer feedback."""
         console.print("[bold magenta]Starting Auditor...[/bold magenta]")
@@ -62,10 +119,10 @@ class AuditorUseCase:
             else settings.template_files.coder_critic_instruction
         )
 
-        instruction = settings.get_prompt_content(template_name)
+        instruction = settings.read_template(template_name)
         if not instruction and is_refactor_phase:
             # Fallback if someone hasn't created it yet
-            instruction = settings.get_prompt_content(
+            instruction = settings.read_template(
                 settings.template_files.coder_critic_instruction
             )
 
@@ -216,7 +273,27 @@ class AuditorUseCase:
                 context_file_names = {str(p) for p in context_paths}
                 reviewable_files = [f for f in reviewable_files if f not in context_file_names]
 
-                target_files = await self._read_files(reviewable_files)
+                # --- Lint Gate: check before LLM review (does not count as review attempt) ---
+                if not is_refactor_phase:
+                    lint_error = await self._check_lint(reviewable_files)
+                    if lint_error:
+                        result = AuditResult(
+                            status="REJECTED",
+                            is_approved=False,
+                            reason="Lint check failed",
+                            feedback=lint_error,
+                        )
+                        return {
+                            "status": FlowStatus.CODER_RETRY,
+                            "audit": state.audit.model_copy(update={"audit_result": result}),
+                            "lint_failed": True,
+                        }
+
+                # Use git diff instead of full file content to reduce token usage
+                if reviewable_files:
+                    target_files = await self._get_git_diff(base_branch, reviewable_files)
+                else:
+                    target_files = {}
         except Exception as e:
             console.print(f"[bold red]Error: Could not determine files to review: {e}[/bold red]")
             raise
@@ -272,7 +349,7 @@ class UATAuditorUseCase:
             "[bold magenta]UAT Failure Detected. Initiating Diagnostic Outer Loop...[/bold magenta]"
         )
 
-        instruction = settings.get_prompt_content(settings.template_files.uat_auditor_instruction)
+        instruction = settings.read_template(settings.template_files.uat_auditor_instruction)
         if not instruction:
             instruction = "You are the Outer Loop Diagnostician. You must strictly output valid JSON matching the FixPlanSchema."
         instruction = instruction.replace("{{cycle_id}}", str(state.cycle_id))

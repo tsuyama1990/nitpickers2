@@ -1,3 +1,4 @@
+import re
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -7,8 +8,6 @@ from src.config import settings
 from .domain_models import (
     AuditResult,
     ConflictRegistryItem,
-    CyclePlan,
-    FileOperation,
     FixPlanSchema,
     StructuralGateReport,
     UatAnalysis,
@@ -16,6 +15,58 @@ from .domain_models import (
     UXAuditReport,
 )
 from .enums import FlowStatus, WorkPhase
+
+# ---------------------------------------------------------------------------
+#  Validators  (consolidated from state_validators.py)
+# ---------------------------------------------------------------------------
+
+def validate_cycle_id(v: str) -> str:
+    if not re.match(r"^[a-zA-Z0-9_-]+$", v):
+        msg = f"cycle_id '{v}' is invalid (must be alphanumeric, e.g., '01' or 'qa-tutorials')"
+        raise ValueError(msg)
+    return v
+
+
+def validate_auditor_index(v: int) -> int:
+    if v < 1:
+        msg = f"Auditor index {v} must be greater than or equal to 1"
+        raise ValueError(msg)
+    if v > settings.NUM_AUDITORS:
+        msg = f"Auditor index {v} exceeds NUM_AUDITORS={settings.NUM_AUDITORS}"
+        raise ValueError(msg)
+    return v
+
+
+def validate_review_count(v: int) -> int:
+    if v < 1:
+        msg = f"Review count {v} must be greater than or equal to 1"
+        raise ValueError(msg)
+    if v > settings.REVIEWS_PER_AUDITOR:
+        msg = f"Review count {v} exceeds REVIEWS_PER_AUDITOR={settings.REVIEWS_PER_AUDITOR}"
+        raise ValueError(msg)
+    return v
+
+
+def validate_audit_attempt_count(v: int) -> int:
+    if v < 0:
+        msg = f"Audit attempt count {v} cannot be negative"
+        raise ValueError(msg)
+    if v > settings.max_audit_retries + 1:
+        msg = f"Audit attempt count {v} exceeds absolute maximum threshold of {settings.max_audit_retries + 1}"
+        raise ValueError(msg)
+    return v
+
+
+def validate_state_consistency(state: Any) -> Any:
+    status = getattr(state, "status", None)
+    error = getattr(state, "error", None)
+    current_auditor_index = getattr(state, "current_auditor_index", 1)
+    if status == FlowStatus.COMPLETED and error is not None and hasattr(state, "error"):
+        state.error = None
+    if isinstance(current_auditor_index, int) and current_auditor_index > settings.NUM_AUDITORS:
+        msg = f"Auditor index {current_auditor_index} logically exceeds maximum {settings.NUM_AUDITORS}"
+        raise ValueError(msg)
+    return state
 
 
 class CommitteeState(BaseModel):
@@ -25,26 +76,21 @@ class CommitteeState(BaseModel):
     audit_attempt_count: int = Field(default=0, ge=0)
     fallback_count: int = Field(default=0, ge=0)
     anti_patterns_memory: list[str] = Field(default_factory=list)
+    is_refactoring: bool = Field(default=False, description="Flag set when post-audit refactoring is in progress")
 
     @field_validator("current_auditor_index")
     @classmethod
     def do_validate_auditor_index(cls, v: int) -> int:
-        from src.state_validators import validate_auditor_index
-
         return validate_auditor_index(v)
 
     @field_validator("current_auditor_review_count")
     @classmethod
     def do_validate_review_count(cls, v: int) -> int:
-        from src.state_validators import validate_review_count
-
         return validate_review_count(v)
 
     @field_validator("audit_attempt_count")
     @classmethod
     def do_validate_audit_attempt_count(cls, v: int) -> int:
-        from src.state_validators import validate_audit_attempt_count
-
         return validate_audit_attempt_count(v)
 
 
@@ -82,7 +128,6 @@ class UATState(BaseModel):
     uat_analysis: UatAnalysis | None = None
     uat_execution_state: UatExecutionState | None = None
     current_fix_plan: FixPlanSchema | None = None
-    sandbox_artifacts: dict[str, Any] = Field(default_factory=dict)
     uat_retry_count: int = 0
     ux_audit_report: UXAuditReport | None = None
 
@@ -104,8 +149,6 @@ class CycleState(BaseModel):
     @field_validator("cycle_id")
     @classmethod
     def do_validate_cycle_id(cls, v: str) -> str:
-        from src.state_validators import validate_cycle_id
-
         return validate_cycle_id(v)
 
     # Composed Sub-States (using default factories to auto-initialize)
@@ -124,18 +167,7 @@ class CycleState(BaseModel):
     concurrent_dependencies: list[str] = Field(default_factory=list)
     qa_retry_count: int = 0
     branch_name: str | None = None
-
-    # Legacy/Optional Fields - kept at root level for legacy backward compatibility easily
-    sandbox_id: str | None = None
-    plan: CyclePlan | None = None
-    code_changes: list[FileOperation] = Field(default_factory=list)
-    loop_count: int = 0
-    correction_history: list[str] = Field(default_factory=list)
-    dry_run: bool = False
-    interactive: bool = False
-    goal: str | None = None
-    approved: bool | None = None
-    coder_report: dict[str, Any] | None = None
+    lint_failed: bool = False
 
     # Properties to maintain backward compatibility with legacy top-level accessors
     @property
@@ -213,10 +245,6 @@ class CycleState(BaseModel):
     @property
     def feature_branch(self) -> str | None:
         return self.session.feature_branch
-
-    @feature_branch.setter
-    def feature_branch(self, value: str | None) -> None:
-        self.session.feature_branch = value
 
     @feature_branch.setter
     def feature_branch(self, value: str | None) -> None:
@@ -336,68 +364,8 @@ class CycleState(BaseModel):
     langgraph_path: tuple[Any, ...] | None = None
     langgraph_checkpoint: dict[str, Any] | None = None
 
-    @model_validator(mode="before")
-    @classmethod
-    def _map_legacy_kwargs(cls, data: Any) -> Any:
-        if not isinstance(data, dict):
-            return data
-
-        legacy_mappings = {
-            "committee": [
-                "current_auditor_index",
-                "current_auditor_review_count",
-                "iteration_count",
-                "audit_attempt_count",
-                "fallback_count",
-                "anti_patterns_memory",
-            ],
-            "session": [
-                "jules_session_name",
-                "critic_retry_count",
-                "pr_url",
-                "resume_mode",
-                "active_branch",
-                "project_session_id",
-                "feature_branch",
-                "integration_branch",
-                "is_session_finalized",
-            ],
-            "audit": [
-                "audit_result",
-                "audit_feedback",
-                "audit_pass_count",
-                "audit_retries",
-                "audit_logs",
-                "last_audited_commit",
-            ],
-            "test": ["structural_report", "test_logs", "test_exit_code", "tdd_phase"],
-            "uat": [
-                "uat_analysis",
-                "uat_execution_state",
-                "current_fix_plan",
-                "sandbox_artifacts",
-                "uat_retry_count",
-            ],
-            "config": ["planned_cycle_count", "requested_cycle_count", "planned_cycles"],
-        }
-
-        for sub_model, keys in legacy_mappings.items():
-            extracted = {k: data.pop(k) for k in keys if k in data}
-            if extracted:
-                if sub_model in data and isinstance(data[sub_model], dict):
-                    data[sub_model].update(extracted)
-                elif sub_model in data and hasattr(data[sub_model], "__dict__"):
-                    for k, v in extracted.items():
-                        setattr(data[sub_model], k, v)
-                else:
-                    data[sub_model] = extracted
-
-        return data
-
     @model_validator(mode="after")
     def do_validate_state_consistency(self) -> "CycleState":
-        from src.state_validators import validate_state_consistency
-
         return validate_state_consistency(self)  # type: ignore[no-any-return]
 
     model_config = ConfigDict(extra="forbid", validate_assignment=True)

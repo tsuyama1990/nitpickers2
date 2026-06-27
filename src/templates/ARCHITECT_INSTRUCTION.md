@@ -29,33 +29,55 @@ You must generate (create) the following files in the repository:
 - `dev_documents/system_prompts/CYCLE{xx}/SPEC.md` (For EACH Cycle)
 - `dev_documents/system_prompts/CYCLE{xx}/UAT.md` (For EACH Cycle)
 - `dev_documents/USER_TEST_SCENARIO.md`
-- `pyproject.toml`
-- `README.md`
 
 ## File Content Requirements
 
 ### 1. dev_documents/system_prompts/SYSTEM_ARCHITECTURE.md
-A comprehensive architectural document. If you find any errors in the `ALL_SPEC.md` file, you must correct them. If you have any good suggestions for the `ALL_SPEC.md` file, you must suggest them. (e.g. Modernize the architectures, codes, add more features, etc.)
+**役割**: 全体アーキテクチャの設計図 + 全サイクル統合時の検証計画。
+このファイルは Coder が各サイクルを実装するためではなく、Integration Phase での統合テスト遂行のために存在する。簡潔に。最小語数制限なし。
+
+If you find any errors in the `ALL_SPEC.md` file, you must correct them. If you have any good suggestions, you must suggest them.
 
 **Requirements:**
 - **Language**: Simple British English (for non-native speakers).
 - **Format**: Markdown. Change the lines appropriately.
 - **Additive Mindset**: Clearly map out how the new requirements integrate with the existing system architecture. Explicitly specify which existing files are reused and which ones need to be safely extended.
 
-**Sections & Word Counts (Minimum):**
-- **Summary**: High-level overview of the system.
-- **System Design Objectives** (Min 500 words): Goals, constraints, and success criteria.
-- **System Architecture** (Min 500 words text + Mermaid Diagram): Components, data flow, external system interactions.
-  - **MUST Include**: Explicit rules on boundary management and separation of concerns.
-- **Design Architecture** (Min 500 words): File structure (ascii tree), class/function definitions overview.
-  - Core Domain Pydantic Models structure and typing.
-  - **MUST Include**: Clear integration points on how the new schema objects extend the existing domain objects.
-- **Implementation Plan** (Min 500 words per cycle): Decompose the project into valid sequential cycles (`CYCLE01` .. `CYCLE{{max_cycles}}`).
-  - **CRITICAL**: You MUST create exactly `{{max_cycles}}` cycles. The list must go from 01 to `{{max_cycles}}`.
-  - Detail exactly what features belong to each cycle.
-- **Test Strategy** (Min 500 words per cycle): How each cycle will be tested (Unit, Integration, E2E).
-  - **MUST Include**: A strategy for executing these tests without side-effects (e.g. mocking external requests, using temporary directories for file I/O).
-  - **DB Rollback Rule**: Any testing requiring database or persistent state setup MUST utilize Pytest fixtures that start a transaction before the test and roll it back after, ensuring lightning-fast state resets without relying on heavy external CLI cleanup commands.
+**Sections (no word count minimums):**
+
+#### a. System Architecture
+- Mermaid diagram 1つ（コンポーネント構成、データフロー、外部依存）
+- 技術選定の根拠（数行）
+- 外部サービス一覧
+
+#### b. Shared Domain Models（全サイクル共通の型定義）
+```python
+# Pydantic モデルの型定義スケルトンを記述
+# これらの型は全サイクルで共有される
+# 各 SPEC.md から参照される
+```
+
+#### c. Cycle Map（テーブル形式）
+| Cycle | 成果物 (ファイル/クラス) | 提供インターフェース | 依存 Cycle |
+|-------|------------------------|---------------------|-----------|
+| CYCLE01 | ... | ... | - |
+| CYCLE02 | ... | ... | CYCLE01 |
+
+**CRITICAL**: You MUST create exactly `{{max_cycles}}` cycles. The list must go from 01 to `{{max_cycles}}`.
+
+#### d. Integration Test Master Plan
+統合テストとは「複数 Cycle の実装をマージしたときに初めて検証可能になるシナリオ」を指す。
+各 Cycle の Coder は以下のテストを `tests/integration/` に実装すること。
+
+| # | マージ対象 | テストファイル | 検証シナリオ | 実行タイミング |
+|---|----------|-------------|------------|-------------|
+| IT01 | CYCLE01 + CYCLE02 | `tests/integration/test_xx.py` | ... | Phase 3 |
+| IT02 | ALL | `tests/integration/test_e2e.py` | ... | Phase 3 完了時 |
+
+各テストの要件:
+- **モック禁止**: 実際の依存を結合して動作させる
+- **DB は fixtures でトランザクションロールバック**
+- 環境変数が必要な場合は `monkeypatch` または `pytest-env` を使用
 
 ### 2. dev_documents/system_prompts/CYCLE{xx}/SPEC.md (For EACH Cycle)
 Detailed specification for a specific development cycle.
@@ -63,9 +85,14 @@ Detailed specification for a specific development cycle.
 **Requirements:**
 - **Language**: Simple British English.
 - **Format**: Markdown. Change the lines appropriately.
+- No word count minimums. Be precise, not verbose.
 
-**Sections:**
-- **Summary** (Min 500 words)
+**Sections (no word count minimums):**
+- **Summary**: What this cycle delivers. Focus on the interface/functionality, not prose.
+- **Interface Contract**:
+  - Pydantic モデルの型定義（コードブロック）。これが最も重要なセクション。
+  - このサイクルが提供するクラス/関数のシグネチャ
+  - このサイクルが依存する他サイクルのインターフェース
 - **Infrastructure & Dependencies** (CRITICAL SEPARATION MUST BE ENFORCED)
   - **A. Project Secrets (`.env.example`):**
     - List external services discovered in the specs for this cycle (e.g., Stripe API, SendGrid).
@@ -77,21 +104,8 @@ Detailed specification for a specific development cycle.
   - **C. Sandbox Resilience (CRITICAL TEST STRATEGY):**
     - **Mandate Mocking:** You MUST explicitly instruct the Coder that *all external API calls relying on the newly defined secrets in `.env.example` MUST be mocked in unit and integration tests (using `unittest.mock` or `pytest-mock`)*.
     - *Why:* The Sandbox will not possess the real API keys during the autonomous evaluation phase. If tests attempt real network calls to SaaS providers without valid `.env` values, the pipeline will fail and cause an infinite retry loop.
-- **System Architecture** (Min 1000 words)
-  - This section is the most important. Provide the **EXACT code blueprints**.
-  - File structure, made of ASCII tree of files to create/modify, consistent with the one depicted in `SYSTEM_ARCHITECTURE.md`. (Make the files **bold** for the ones to create/modify in the cycle)
-- **Design Architecture** (Min 500 words)
-  - This system is fully designed by Pydantic-based schema.
-  - This section must be written as a pre-implementation design document for robust Pydantic-based schema.
-  - The domain concepts represented in each file depicted in system architecture.
-  - Key invariants, constraints, and validation rules.
-  - Expected consumers and producers of the data (internal modules, APIs, external systems).
-  - Versioning, extensibility, and backward-compatibility considerations.
-- **Implementation Approach** (Min 600 words)
-  - Step-by-step implementation guide.
-- **Test Strategy** (Min 600 words total)
-  - Unit Testing Approach, meeting the criteria / spec / feature of design architecture (Min 300 words).
-  - Integration Testing Approach, meeting the criteria / spec / feature of design architecture (Min 300 words).
+- **Implementation Notes**: Step-by-step implementation guide. What to do, what to avoid.
+- **Test Strategy**: How to test this cycle. Unit tests and integration tests approach.
 
 ### 3. dev_documents/system_prompts/CYCLE{xx}/UAT.md (For EACH Cycle)
 User Acceptance Testing plan.
@@ -99,93 +113,32 @@ User Acceptance Testing plan.
 **Requirements:**
 - **Language**: Simple British English.
 - **Format**: Markdown. Change the lines appropriately.
+- No word count minimums.
 
-**Sections:**
-- **Test Scenarios** (Min 300 words per Scenario ID)
+**Sections (no word count minimums):**
+- **Test Scenarios**
   - List of scenarios with ID and Priority, based on the use-cases in `ALL_SPEC.md`.
   - UAT is a kind of user experience. Design the UAT to amaze the users.
   - **Marimo** (`.py`) is required to allow the user to easily verify requirements and ensure reproducibility.
   - A few files are better than too many files for simplicity. (UAT could be the tutorials for the new users to understand the system.)
-- **Behavior Definitions** (Min 500 words)
+- **Behavior Definitions**
   - Gherkin-style (GIVEN/WHEN/THEN) definitions.
 
-### 4. dev_documents/USER_TEST_SCENARIO.md (Refinement)
-The Master Plan for User Acceptance Testing and Tutorials. If the input `USER_TEST_SCENARIO.md` is incomplete, the Architect may refine it to add more specific test cases based on the architecture.
+### 4. dev_documents/USER_TEST_SCENARIO.md（Refinement）
+UAT のマスタープラン。TDD の Acceptance Test に相当する。
+入力の `USER_TEST_SCENARIO.md` が不完全な場合、Architect が Architecture に基づいてリファインする。
 
 **Requirements:**
 - **Language**: Simple British English.
 - **Format**: Markdown.
+- No word count minimums.
 
-**Sections:**
-- **Tutorial Strategy**
-  - How to turn the `USER_TEST_SCENARIO.md` into executable tutorials.
-  - Strategy for "Mock Mode" (CI/no-api-key execution) vs "Real Mode".
-- **Tutorial Plan**
-  - You must specify that a **SINGLE** Marimo Text/Python file named `tutorials/UAT_AND_TUTORIAL.py` will be created.
-  - It should contain all scenarios (Quick Start + Advanced) in one file for easy verification using `marimo`.
-- **Tutorial Validation**
-  - Validate that the Marimo file executes correctly.
+**Sections (no word count minimums):**
+- **Tutorial Strategy**: How to turn scenarios into executable Marimo tutorials.
+- **Tutorial Plan**: SINGLE Marimo file (`tutorials/UAT_AND_TUTORIAL.py`) に全シナリオを集約。
+- **Tutorial Validation**: Marimo ファイルが正しく実行されることを確認。
 
-### 5. pyproject.toml - Linter Configuration
-**IMPORTANT:** This project enforces strict code quality standards using `ruff` and `mypy` in strict mode.
-
-**Dependency Requirements (CRITICAL):** You **MUST** explicitly add the following tools to the `[dependency-groups] dev` section (or `[project.optional-dependencies]` if strictly following PEP 621 without `uv` features, but `dependency-groups` is preferred for `uv`):
-- `ruff`
-- `mypy`
-- `pytest`
-- `pytest-cov`
-
-**Modification Rules:**
-- **DO NOT MODIFY** any existing sections in `pyproject.toml` (except adding the required dependencies).
-- **ONLY OVERRIDE** the linter tool settings shown below if needed for project-specific requirements.
-- The default configuration is optimized for AI-generated code quality.
-
-**Default Linter Configuration:**
-
-```toml
-[tool.ruff]
-target-version = "py311"
-line-length = 100
-fix = true
-
-[tool.ruff.lint]
-select = [
-    "F", "E", "W", "C90", "I", "N", "UP", "YTT", "ANN", "ASYNC", "S", "BLE",
-    "B", "A", "C4", "DTZ", "T10", "EM", "ICN", "PIE", "T20", "PT", "RET",
-    "SIM", "TID", "ARG", "PTH", "ERA", "PL", "TRY", "RUF"
-]
-
-ignore = [
-    "ANN101", "ANN002", "ANN003", "ANN001", "ANN401", "ARG001", "ARG005",
-    "PLR2004", "E501", "TRY003", "D", "ANN201", "N806", "PLC0415", "BLE001",
-    "PT019", "RUF003", "ARG002", "RUF043", "RUF059", "PLR0913", "ANN202"
-]
-
-[tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = ["S101"]  # Allow assert in tests
-
-[tool.ruff.lint.mccabe]
-max-complexity = 10  # Exceeding this prompts function splitting (prevent AI long functions)
-
-[tool.ruff.lint.flake8-annotations]
-suppress-dummy-args = true  # Arguments starting with _ do not require type hints
-
-[tool.pytest.ini_options]
-addopts = "--cov=dev_src --cov=src --cov-report=term-missing"
-testpaths = ["tests"]
-
-[tool.mypy]
-strict = true
-ignore_missing_imports = true
-```
-
-**Why These Settings Matter:**
-- **Type Safety**: Strict `mypy` + `ANN` rules catch type errors before runtime.
-- **Complexity Control**: Max complexity of 10 prevents unmaintainable AI-generated functions.
-- **Security**: Bandit rules prevent common security vulnerabilities.
-- **Maintainability**: Enforces modern Python patterns and clean code practices.
-
-### 6. dev_documents/required_envs.json
+### 5. dev_documents/required_envs.json
 A strict JSON array of required environment variables.
 
 **Requirements:**
@@ -193,41 +146,3 @@ A strict JSON array of required environment variables.
 - **Format**: JSON.
 - **Example**: `["STRIPE_API_KEY", "DB_PASSWORD", "ANTHROPIC_API_KEY"]`
 - If no external services or API keys are required, output an empty JSON array `[]`.
-
-### 7. README.md Generation
-You must generate a comprehensive `README.md` file in the project root. This file acts as the landing page for the project. It must be written based on the `ALL_SPEC.md` and the `SYSTEM_ARCHITECTURE.md` you just designed.
-
-**Required README.md Structure:**
-- **Project Title & Description**
-  - Project Name.
-  - A concise "Elevator Pitch" (1-2 sentences explaining what this solves).
-  - Status badges (use placeholders like `![Build Status](...)`).
-- **Key Features**
-  - Highlight 3-5 core features derived from `ALL_SPEC.md`.
-  - Focus on value propositions (e.g., "Automated X," "Zero-config Y").
-- **Architecture Overview**
-  - A brief summary of the system design.
-  - **IMPORTANT**: Include a Mermaid diagram representing the high-level architecture (copy or simplify the one from `SYSTEM_ARCHITECTURE.md`).
-- **Prerequisites**
-  - List required tools (e.g., Python 3.12+, uv, Docker, API Keys).
-- **Installation & Setup**
-  - Step-by-step commands to initialize the project.
-  - Example:
-    ```bash
-    git clone ...
-    uv sync
-    cp .env.example .env
-    ```
-- **Usage**
-  - Provide the primary commands to run the system.
-  - Include a "Quick Start" example.
-- **Development Workflow**
-  - Explain how to run tests (e.g., `pytest`).
-  - Explain how to run linters (e.g., `ruff check`).
-  - Mention the cycle-based development flow if applicable.
-- **Project Structure**
-  - A brief tree view of the critical directories (e.g., `src/`, `tests/`).
-- **License**
-  - State the license (default to MIT or proprietary as per spec).
-
-**Note:** Since implementation details might change, keep the "Usage" and "Installation" sections generic but accurate based on your architectural decisions (e.g., if you decided to use `uv`, strictly write `uv` commands).

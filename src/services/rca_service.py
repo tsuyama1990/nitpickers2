@@ -58,46 +58,28 @@ class RCAService:
         """Calls the LLM to synthesize the failure data."""
         import litellm
 
-        from src.utils_sanitization import sanitize_for_llm
+        from src.config import settings as s
+        from src.utils import sanitize_for_llm
 
         # Sanitize sensitive data before sending to diagnostic LLM
         sanitized_state = sanitize_for_llm(json.dumps(snapshot, indent=2))
         sanitized_log = sanitize_for_llm(log_tail)
 
-        prompt = f"""
-# SYSTEM POST-MORTEM REQUEST
-Cycle ID: {cycle_id}
-Trace ID: {snapshot.get("trace_id", "N/A")}
-Error: {snapshot.get("error", "Unknown")}
+        system_prompt = s.read_template("RCA_SYSTEM.md")
+        instruction_template = s.read_template("RCA_INSTRUCTION.md")
+        prompt = instruction_template.format(
+            cycle_id=cycle_id,
+            trace_id=snapshot.get("trace_id", "N/A"),
+            error=snapshot.get("error", "Unknown"),
+            sanitized_state=sanitized_state,
+            sanitized_log=sanitized_log,
+        )
 
-## FAILURE SNAPSHOT (GIT DIFF & STATE)
-```json
-{sanitized_state}
-```
-
-## LOCAL LOG TAIL (LAST 100 LINES)
-```text
-{sanitized_log}
-```
-
----
-# INSTRUCTIONS
-Analyze the data above and provide a concise (max 300 words) Root Cause Analysis.
-1. Identify the likely technical cause (e.g. timeout, state mismatch, git conflict).
-2. Cross-reference the Log Tail with the Git Diff if possible.
-3. Suggest a concrete fix or next step for the human operator.
-4. If a LangSmith Trace ID is present, remind the user to check it for detailed LLM thoughts.
-
-Format: Markdown.
-"""
         try:
             response = await litellm.acompletion(
                 model=self.model,
                 messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a Root Cause Analysis (RCA) expert for an AI agentic system.",
-                    },
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.0,
