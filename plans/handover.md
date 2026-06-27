@@ -102,50 +102,76 @@ flowchart TB
 
 ---
 
-## テスト状況
+## テスト状況 (2026-06-27 Session 3 時点)
 
 ```
-tests/e2e/test_coder_graph.py ........ 2/2 PASS
-tests/integration/test_coder_graph.py  1/1 PASS
+tests/unit/ .......................................... 106/106 PASS
+tests/integration/test_coder_graph.py ............... 1/1 PASS
+tests/integration/test_tracing_integration.py ....... 2/2 PASS
+tests/e2e/test_coder_graph.py ....................... 2/2 PASS
+tests/e2e/test_architect_graph.py ................... 3/3 PASS
+tests/e2e/test_qa_graph.py ......................... 2/2 PASS
+-----------------------------------------------------
+合計 (live除く) ................................... 114/114 PASS
 ```
+
+全4グラフに構造テスト + 実行時テストあり。
 
 ### 既知の事前存在エラー (今回の変更と無関係)
 
 | ファイル | エラー |
 |---|---|
 | `src/utils.py` | `BaseCallbackHandler` has type `Any` |
-| `src/base_jules_usecase.py` | `FlowStatus.AUDIT_FAILED` 不存在 |
+| `src/services/base_jules_usecase.py` | `FlowStatus.AUDIT_FAILED` 不存在 |
 | `src/config.py` | `BaseSettings` has type `Any` |
 | `src/services/llm_reviewer.py` | Returning `Any` from function declared to return `bool` |
 
 ---
 
-## 次のステップ（未着手）
+## 次回着手推奨タスク
 
-### Phase 3: ユニットテスト
+### P1: `src/services/git/` ディレクトリ統合 (6ファイル→1)
 
-**目的**: グラフ構造 + ルーターの網羅的テスト
+**問題**: 970行のGit操作コードが6ファイル + mixinパターンで分割されている。
+`GitManager` が5つのmixinクラスを多重継承しているが、すべて `_run_git()` をラップしただけ。
 
-**スコープ**:
-- 全4グラフのノード構成・エッジ接続のテスト
-- 各ルーター関数の全ブランチテスト
-- `CycleState` バリデーションのテスト
-- `is_refactoring` を使ったルーティングの結合テスト
+**ファイル**:
+```
+src/services/git/
+├── base.py         (153行) — BaseGitManager
+├── branching.py    (149行) — GitBranchingMixin
+├── checkout.py     (236行) — GitCheckoutMixin
+├── merging.py      (246行) — GitMergingMixin
+├── state.py        (111行) — GitStateMixin
+└── worktree.py     (75行)  — GitWorktreeManager
+```
 
-**テストファイル案**:
-- `tests/unit/test_graph_structure.py` — グラフ定義の構造テスト
-- `tests/unit/test_routers.py` — ルーター関数の単体テスト
+**方法**: 全mixinの中身を `git_ops.py` にフラットにマージ。mixinクラスを削除し、全メソッドを直接 `GitManager` に配置。
 
-### Phase 4: StateManager / SessionManager 統合
+**リスク**: 中。Pythonの実行時には影響しないが、970行のマージを慎重に行う必要がある。テストは既存のものでカバー可能。
 
-**問題**: 二重の状態永続化
+### P2: `src/services/workflow.py` 分割 (1041行→複数ファイル)
 
-| クラス | 保存先 | 使用中? |
-|---|---|---|
-| [`StateManager`](src/state_manager.py) | ローカル `.nitpick/` ディレクトリ | ✅ 実運用で使用 |
-| [`SessionManager`](src/session_manager.py) | Git orphan ブランチ | ❌ 事実上デッドコード |
+**問題**: ワークフロー全ロジックが単一ファイルに集中。`WorkflowService` クラスが巨大。
 
-**計画**: `SessionManager` の削除、または `StateManager` との統合。両者がほぼ同一インターフェース (`load_manifest`, `save_manifest`, `create_manifest`, `get_cycle`, `update_cycle_state`) を持つため、共通インターフェースへの移行が可能。
+**改善案**: 機能別に分割:
+- `workflow_orchestrator.py` — メインのrun_cycle/run_gen_cycles
+- `workflow_session.py` — セッション管理(start_session/finalize_session)
+- `workflow_setup.py` — 初期化・環境セットアップ
+
+**リスク**: 高。`workflow.py` は全機能のハブ。慎重な分割とテストが必要。
+
+### P3: `src/services/jules_client.py` 整理 (658行)
+
+**問題**: 監視ループ、プラン監査、問い合わせ応答が1クラスに混在。
+
+**改善案**:
+- `JulesClient` — API呼び出しのみ
+- 監視ループを分離 (例: `SessionWatcher`)
+
+### P4: QA系3usecase統合 (qa + uat + ux_auditor → 1ファイル)
+
+**問題**: 3ファイルに分かれているが、すべてQA Graphのノードとして連携。
 
 ### 中期的課題 (未着手)
 
@@ -153,7 +179,7 @@ tests/integration/test_coder_graph.py  1/1 PASS
 |---|---|---|
 | `MemorySaver` → 永続チェックポインタ (`SqliteSaver`) | 🟠 中 | プロセス再起動で LangGraph 状態消失 |
 | ノードメソッド内の `MasterIntegratorClient()` 直接生成 | 🟡 低 | `master_integrator_node` のみ残存 |
-| テストが全ノードを MagicMock 化 → 実 `CycleNodes` の配線未検証 | 🔵 情報 | Phase 3 で改善予定 |
+| `e2e/test_integration_graph.py` の `mock_global_sandbox` 参照 | 🟢 低 | 削除されたsandbox_nodeを参照。テスト修正が必要 |
 
 ---
 
