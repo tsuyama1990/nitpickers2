@@ -16,11 +16,12 @@ class ProcessRunner:
         cwd: Path | None = None,
         check: bool = True,
         env: dict[str, str] | None = None,
-        timeout_seconds: int | float | None = None,
+        timeout_seconds: int | float | None = 60,
     ) -> tuple[str, str, int, bool]:
         """
         Executes a command asynchronously.
         Returns: (stdout, stderr, exit_code, timeout_occurred)
+        Default timeout is 60 seconds to prevent hanging subprocesses.
         """
         cmd_str = " ".join(cmd)
         redacted_cmd_str = redact_secrets(cmd_str)

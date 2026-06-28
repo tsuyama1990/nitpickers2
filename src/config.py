@@ -591,11 +591,16 @@ class Settings(BaseSettings):
 
         # Validate LangSmith Tracing Configuration
         # We check both the config object (Pydantic-loaded) and raw os.environ
-        # to ensure standard LANGCHAIN_* variables are respected without NITPICK_ prefix.
+        # to ensure standard LANGCHAIN_*/LANGSMITH_* variables are respected
+        # without requiring the NITPICK_ prefix.
         tracing_enabled = self.tracing.tracing_enabled or (
             os.environ.get("LANGCHAIN_TRACING_V2", "false").lower() == "true"
         )
-        api_key = self.tracing.api_key or os.environ.get("LANGCHAIN_API_KEY")
+        api_key = (
+            self.tracing.api_key
+            or os.environ.get("LANGCHAIN_API_KEY")
+            or os.environ.get("LANGSMITH_API_KEY")
+        )
 
         if tracing_enabled and not api_key:
             logging.warning(
@@ -605,7 +610,8 @@ class Settings(BaseSettings):
             os.environ["LANGCHAIN_TRACING_V2"] = "false"
             self.tracing.tracing_enabled = False
         elif tracing_enabled:
-            # Synchronize back to config and environ to ensure all downstream tools (litellm, langchain) see it
+            # Synchronize back to config and environ to ensure all downstream
+            # tools (litellm, langchain) see it
             self.tracing.tracing_enabled = True
             self.tracing.api_key = api_key
             os.environ["LANGCHAIN_TRACING_V2"] = "true"
@@ -614,7 +620,11 @@ class Settings(BaseSettings):
                 os.environ["LANGSMITH_API_KEY"] = api_key
 
             # Ensure LiteLLM-specific LANGSMITH_PROJECT is synced with LANGCHAIN_PROJECT
-            project_name = self.tracing.project_name or os.environ.get("LANGCHAIN_PROJECT")
+            # Prefer raw env var so .nitpick/.env overrides the Pydantic default
+            project_name = (
+                os.environ.get("LANGCHAIN_PROJECT")
+                or self.tracing.project_name
+            )
             if project_name:
                 os.environ["LANGSMITH_PROJECT"] = project_name
                 os.environ["LANGCHAIN_PROJECT"] = project_name
