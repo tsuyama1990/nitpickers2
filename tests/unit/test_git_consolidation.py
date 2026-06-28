@@ -16,6 +16,8 @@ Total public API methods tracked here: 33 (excluding __init__, _private helpers)
 """
 
 
+import typing
+
 from src.services.git_ops import GitManager, GitWorktreeManager
 
 # ---------------------------------------------------------------------------
@@ -145,7 +147,7 @@ class TestGitManagerInit:
 
     def test_init_with_cwd(self) -> None:
         from pathlib import Path
-        cwd = Path("/tmp/test")
+        cwd = Path("/tmp/test_dir_dir")  # noqa: S108  # noqa: S108
         gm = GitManager(cwd=cwd)
         assert gm.cwd == cwd
 
@@ -162,7 +164,7 @@ class TestGitManagerInit:
 class TestGitManagerMethodsAreCallable:
     """Verify all methods are callable (not just attributes)."""
 
-    ALL_PUBLIC_METHODS = [
+    ALL_PUBLIC_METHODS: typing.ClassVar[list[str]] = [
         'get_current_commit', 'get_status', 'add_all', 'commit',
         'fetch_changes', 'reset_hard',
         'get_current_branch', 'get_remote_url',

@@ -21,29 +21,20 @@ pytestmark = [pytest.mark.live]
 
 def test_langsmith_env_configuration() -> None:
     """Check which LangSmith-related env vars are available and how settings interprets them."""
-    print("\n  ── LangSmith Environment Check ──")
 
     # Raw env vars
     ls_api_key = os.environ.get("LANGSMITH_API_KEY", "")
     lc_api_key = os.environ.get("LANGCHAIN_API_KEY", "")
     lc_tracing = os.environ.get("LANGCHAIN_TRACING_V2", "false")
-    lc_project = os.environ.get("LANGCHAIN_PROJECT", "")
-    ls_project = os.environ.get("LANGSMITH_PROJECT", "")
+    os.environ.get("LANGCHAIN_PROJECT", "")
+    os.environ.get("LANGSMITH_PROJECT", "")
 
-    print(f"  LANGSMITH_API_KEY:     {'✅ Set' if ls_api_key else '❌ Missing'} ({ls_api_key[:15]}...)" if ls_api_key else "  LANGSMITH_API_KEY:     ❌ Missing")
-    print(f"  LANGCHAIN_API_KEY:     {'✅ Set' if lc_api_key else '❌ Missing'}")
-    print(f"  LANGCHAIN_TRACING_V2:  {lc_tracing}")
-    print(f"  LANGCHAIN_PROJECT:     {lc_project or '❌ Missing'}")
-    print(f"  LANGSMITH_PROJECT:     {ls_project or '❌ Missing (default: nitpickers-default)'}")
 
     # NITPICK_ prefixed vars
     nitpick_tracing = os.environ.get("NITPICK_TRACING__LANGCHAIN_TRACING_V2", "")
     nitpick_key = os.environ.get("NITPICK_TRACING__LANGCHAIN_API_KEY", "")
-    nitpick_project = os.environ.get("NITPICK_TRACING__LANGCHAIN_PROJECT", "")
+    os.environ.get("NITPICK_TRACING__LANGCHAIN_PROJECT", "")
 
-    print(f"  NITPICK_TRACING__LANGCHAIN_TRACING_V2: {'✅ Set' if nitpick_tracing else '❌ Missing'}")
-    print(f"  NITPICK_TRACING__LANGCHAIN_API_KEY:     {'✅ Set' if nitpick_key else '❌ Missing'}")
-    print(f"  NITPICK_TRACING__LANGCHAIN_PROJECT:     {'✅ Set' if nitpick_project else '❌ Missing'}")
 
     # Check if settings would enable tracing
     tracing_will_work = (
@@ -51,10 +42,9 @@ def test_langsmith_env_configuration() -> None:
     ) and (bool(lc_api_key) or bool(ls_api_key) or bool(nitpick_key))
 
     if tracing_will_work:
-        print("\n  ✅ LangSmith tracing will be ENABLED when settings load")
+        pass
     else:
-        print("\n  ⚠️  LangSmith tracing is DISABLED")
-        print("  → Set LANGCHAIN_TRACING_V2=true and LANGCHAIN_API_KEY=... to enable")
+        pass
 
 
 @pytest.mark.asyncio
@@ -66,26 +56,13 @@ async def test_langsmith_tracing_via_settings() -> None:
     """
     from src.config import settings
 
-    print("\n  ── Settings Tracing Config ──")
-    print(f"  settings.tracing.tracing_enabled: {settings.tracing.tracing_enabled}")
-    print(f"  settings.tracing.api_key:          {settings.tracing.api_key[:15] if settings.tracing.api_key else None}...")
-    print(f"  settings.tracing.project_name:     {settings.tracing.project_name}")
-    print(f"  settings.tracing.endpoint:         {settings.tracing.endpoint}")
 
     # Check if env vars were synchronized
-    print("\n  ── Post-init Env Vars ──")
-    print(f"  LANGCHAIN_TRACING_V2:  {os.environ.get('LANGCHAIN_TRACING_V2', 'not set')}")
-    print(f"  LANGSMITH_API_KEY:     {os.environ.get('LANGSMITH_API_KEY', 'not set')[:15]}..." if os.environ.get('LANGSMITH_API_KEY') else "  LANGSMITH_API_KEY:     not set")
-    print(f"  LANGCHAIN_PROJECT:     {os.environ.get('LANGCHAIN_PROJECT', 'not set')}")
 
     if settings.tracing.tracing_enabled:
-        print("\n  ✅ LangSmith tracing is ACTIVE")
+        pass
     else:
-        print("\n  ⚠️  LangSmith tracing is INACTIVE")
-        print("  → To enable, add to your ~/.zshrc:")
-        print('    export LANGCHAIN_TRACING_V2=true')
-        print(f'    export LANGCHAIN_API_KEY={os.environ.get("LANGSMITH_API_KEY", "<your-key>")}')
-        print('    export LANGCHAIN_PROJECT=nitpickers')
+        pass
 
 
 @pytest.mark.asyncio
@@ -125,8 +102,6 @@ async def test_langsmith_send_trace() -> None:
     prompt = PromptTemplate.from_template("Say the word '{word}' and nothing else.")
     chain = prompt | llm | StrOutputParser()
 
-    result = await chain.ainvoke({"word": "LangSmith"})
-    print(f"\n  LLM result: {result}")
+    await chain.ainvoke({"word": "LangSmith"})
 
     # If we got here without errors, the trace was sent
-    print(f"  ✅ Trace sent to LangSmith project: {settings.tracing.project_name}")

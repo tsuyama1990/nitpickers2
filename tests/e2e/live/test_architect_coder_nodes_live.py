@@ -104,7 +104,6 @@ def test_jules_client_initialization() -> None:
     client = JulesClient()
     assert client.sdk_client is not None, "SDK client should be initialized"
     assert client.timeout > 0, "Timeout should be set"
-    print(f"\n  ✅ JulesClient initialized (timeout={client.timeout}s, poll={client.poll_interval}s)")
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -137,9 +136,7 @@ async def test_jules_session_creation(jules_client: Any) -> None:
         session_name = result.get("session_name")
         assert session_name is not None, f"No session_name in result keys: {list(result.keys())}"
 
-        status = result.get("status")
-        print(f"\n  ✅ Session created: {session_name}")
-        print(f"  Status: {status}")
+        result.get("status")
 
         # Verify the session exists via the SDK
         normalized = (
@@ -147,7 +144,6 @@ async def test_jules_session_creation(jules_client: Any) -> None:
         )
         session = await jules_client.sdk_client.sessions.get(normalized)
         assert session is not None, "Session should be fetchable from API"
-        print(f"  Session state: {jules_client._get_state_str(session)}")
 
     except TimeoutError:
         pytest.fail("Session creation timed out after 30s")
@@ -176,22 +172,19 @@ async def test_jules_session_lifecycle(jules_client: Any) -> None:
     assert result is not None, "run_session returned None"
     session_name = result.get("session_name")
     assert session_name, f"No session_name in result: {result}"
-    print(f"\n  Session created: {session_name}")
 
     # Poll for session state a few times (don't wait for full completion)
     normalized = (
         f"sessions/{session_name}" if not session_name.startswith("sessions/") else session_name
     )
-    for attempt in range(3):
+    for _attempt in range(3):
         await asyncio.sleep(5)
         try:
             session = await jules_client.sdk_client.sessions.get(normalized)
-            state = jules_client._get_state_str(session)
-            print(f"  Session state (attempt {attempt + 1}): {state}")
-        except Exception as e:
-            print(f"  State check error: {e}")
+            jules_client._get_state_str(session)
+        except Exception:
+            pass
 
-    print("  ✅ Session lifecycle test passed (session created and responsive)")
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -239,11 +232,9 @@ async def test_architect_node_creates_session(
     except TimeoutError:
         pytest.fail("Architect session node timed out after 60s (Jules may be slow)")
 
-    print(f"\n  Architect node result keys: {list(result.keys())}")
     status = result.get("status")
-    print(f"  Status: {status}")
     if result.get("error"):
-        print(f"  Error: {result['error']}")
+        pass
 
     # The node should either complete the session or fail gracefully
     assert status in (
@@ -254,14 +245,11 @@ async def test_architect_node_creates_session(
     if status == FlowStatus.ARCHITECT_SESSION_COMPLETED:
         session = result.get("session")
         assert session is not None
-        pr_url = getattr(session, "pr_url", None)
+        getattr(session, "pr_url", None)
         session_id = getattr(session, "project_session_id", None)
-        print(f"  PR URL: {pr_url}")
-        print(f"  Session ID: {session_id}")
         assert session_id is not None, "Expected project_session_id in session state"
-        print("  ✅ Architect node created and completed a Jules session!")
     else:
-        print("  ⚠️  Architect node reported failure (check error above)")
+        pass
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -309,11 +297,9 @@ async def test_coder_usecase_connectivity(
     except TimeoutError:
         pytest.fail("Coder usecase timed out after 60s")
 
-    print(f"\n  Coder node result keys: {list(result.keys())}")
     status = result.get("status")
-    print(f"  Status: {status}")
     if result.get("error"):
-        print(f"  Error: {result['error']}")
+        pass
 
     acceptable = {
         FlowStatus.COMPLETED,
@@ -324,9 +310,9 @@ async def test_coder_usecase_connectivity(
     assert status in acceptable, f"Unexpected status: {status}"
 
     if status in (FlowStatus.COMPLETED, FlowStatus.READY_FOR_AUDIT):
-        print("  ✅ Coder node created and completed a Jules session!")
+        pass
     else:
-        print(f"  ⚠️  Coder node returned status: {status}")
+        pass
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -376,9 +362,8 @@ async def test_architect_graph_live(
     except TimeoutError:
         pytest.fail("Architect graph timed out after 180s")
 
-    print(f"\n  Final status: {final_state.get('status')}")
     if final_state.get("error"):
-        print(f"  Error: {final_state['error']}")
+        pass
 
     status = final_state.get("status")
     assert status in (
@@ -388,6 +373,6 @@ async def test_architect_graph_live(
     ), f"Unexpected final status: {status}"
 
     if status == FlowStatus.ARCHITECT_COMPLETED:
-        print("  ✅ Architect graph completed successfully!")
+        pass
     else:
-        print(f"  ⚠️  Architect graph ended with status: {status}")
+        pass
