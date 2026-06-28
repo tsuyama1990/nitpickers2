@@ -151,11 +151,9 @@ async def test_integration_graph_semantic_failure(repo_path: Path, integration_g
     with (
         patch.object(settings.paths, "workspace_root", repo_path),
         patch("os.getcwd", return_value=str(repo_path)),
+        patch("src.nodes.integration_fixer.IntegrationFixerNodes.integration_fixer_node") as mock_fixer,
     ):
         # Mock the integration fixer node to resolve the issue
-        with patch(
-            "src.nodes.integration_fixer.IntegrationFixerNodes.integration_fixer_node"
-        ) as mock_fixer:
             mock_fixer.return_value = {"status": "success"}
 
             state = IntegrationState(branches_to_merge=["feature-a"])

@@ -13,7 +13,7 @@ class DependencyManager:
         self.runner = ProcessRunner()
         self.git = GitManager()
 
-    async def initialize_dependencies_and_git(self) -> None:
+    async def initialize_dependencies_and_git(self) -> None:  # noqa: C901
         if not (Path.cwd() / "pyproject.toml").exists():
             logger.info("Initializing pyproject.toml...")
             await self.runner.run_command(["uv", "init", "--no-workspace"], check=False)

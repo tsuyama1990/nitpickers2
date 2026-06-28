@@ -39,7 +39,7 @@ class RefactorUsecase:
             result += f"  - Function '{item['function']}' in file '{item['file']}' (Complexity: {item['complexity']})\n"
         return result
 
-    async def execute(self) -> GlobalRefactorResult:
+    async def execute(self) -> GlobalRefactorResult:  # noqa: C901
         """
         Executes the global refactoring analysis.
         If opportunities are found, it invokes the Master Integrator session.

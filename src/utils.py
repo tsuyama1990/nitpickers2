@@ -1,8 +1,11 @@
 import contextvars
+import json as _json
 import logging
 import os
+import re as _re
 import shutil
 import subprocess
+import unicodedata as _unicodedata
 from types import TracebackType
 from typing import Any
 
@@ -253,8 +256,6 @@ class KeepAwake:
 #  JSON extraction  (consolidated from utils_json.py)
 # ---------------------------------------------------------------------------
 
-import json as _json
-import re as _re
 
 _THOUGHT_BLOCK_RE = _re.compile(r"<thought>.*?</thought>", flags=_re.DOTALL | _re.IGNORECASE)
 _TRUNCATED_THOUGHT_BLOCK_RE = _re.compile(r"<thought>.*", flags=_re.DOTALL | _re.IGNORECASE)
@@ -323,7 +324,6 @@ def extract_json_from_text(content: str) -> str:
 #  Sanitization  (consolidated from utils_sanitization.py)
 # ---------------------------------------------------------------------------
 
-import unicodedata as _unicodedata
 
 
 def redact_secrets(content: str) -> str:
