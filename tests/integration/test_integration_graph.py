@@ -98,8 +98,6 @@ async def test_integration_graph_clean_merge(repo_path: Path, integration_graph:
     assert result is not None
     # We expect the git_merge_node to actually merge the branch!
     # The dummy implementation currently hardcodes "merge_pr('1')" and will fail because branch "clean-branch" is expected.
-    # Furthermore, global_sandbox_node should be called and pass.
-    assert "global_sandbox_node" in result.get("langgraph_path", []) or True
 
     # Check if branch is merged
     # (If the real implementation was there, we'd see 'clean-branch' merged)

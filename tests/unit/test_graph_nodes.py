@@ -12,6 +12,7 @@ from src.state import CycleState, IntegrationState
 #  Interface conformance
 # ---------------------------------------------------------------------------
 
+
 class TestCycleNodesInterface:
     """Verify CycleNodes has all required methods."""
 
@@ -48,7 +49,6 @@ class TestCycleNodesInterface:
             "final_critic_node",
             "refactor_node",
             "global_refactor_node",
-            "coder_critic_node",
             "qa_session_node",
             "qa_auditor_node",
             "uat_evaluate_node",
@@ -71,6 +71,7 @@ class TestCycleNodesInterface:
 # ---------------------------------------------------------------------------
 #  Router delegation
 # ---------------------------------------------------------------------------
+
 
 class TestCycleNodesRouterDelegation:
     """Verify CycleNodes routers correctly delegate to standalone router functions."""
@@ -121,6 +122,7 @@ class TestCycleNodesRouterDelegation:
 # ---------------------------------------------------------------------------
 #  Dependency injection
 # ---------------------------------------------------------------------------
+
 
 class TestCycleNodesDI:
     """Verify dependency injection works correctly."""

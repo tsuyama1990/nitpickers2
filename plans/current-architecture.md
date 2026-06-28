@@ -1,8 +1,8 @@
 # Nitpickers2 アーキテクチャ概要
 
-> 生成日: 2026-06-27
-> ソースファイル数: 63 (templates除く)
-> テスト数: 107
+> 生成日: 2026-06-28 (更新)
+> ソースファイル数: 57 (templates除く)
+> テスト数: 114 (live除く, 2026-06-27時点)
 
 ---
 
@@ -56,9 +56,9 @@ flowchart TB
 
 ### 2.1 Architect Graph
 
-**ファイル**: [`src/graph.py:25`](../src/graph.py:25)
+**ファイル**: [`src/graph.py:23`](../src/graph.py:23)
 
-**ルーター**: [`route_architect_session`](../src/nodes/routers.py:59), [`route_architect_critic`](../src/nodes/routers.py:66)
+**ルーター**: [`route_architect_session`](../src/nodes/routers.py:58), [`route_architect_critic`](../src/nodes/routers.py:65)
 
 ```mermaid
 flowchart TB
@@ -76,12 +76,12 @@ flowchart TB
 **状態**: シンプル。最大1回のcriticループ。
 
 ---
-
 ### 2.2 Coder Graph
 
-**ファイル**: [`src/graph.py:58`](../src/graph.py:58)
+**ファイル**: [`src/graph.py:56`](../src/graph.py:56)
 
-**ルーター**: [`check_coder_outcome`](../src/nodes/routers.py:8), [`route_committee`](../src/nodes/routers.py:27)
+**ルーター**: [`check_coder_outcome`](../src/nodes/routers.py:7), [`route_committee`](../src/nodes/routers.py:26)
+
 
 ```mermaid
 flowchart TB
@@ -111,12 +111,12 @@ flowchart TB
 **ルーティング複雑性**: committee_nodeが4方向に分岐。`current_phase`と`status`の組み合わせで決定。
 
 ---
-
 ### 2.3 QA Graph
 
-**ファイル**: [`src/graph.py:111`](../src/graph.py:111)
+**ファイル**: [`src/graph.py:109`](../src/graph.py:109)
 
-**ルーター**: [`route_qa`](../src/nodes/routers.py:51)
+**ルーター**: [`route_qa`](../src/nodes/routers.py:50)
+
 
 ```mermaid
 flowchart TB
@@ -135,12 +135,12 @@ flowchart TB
 - `ux_auditor`: UX監査
 
 ---
-
 ### 2.4 Integration Graph
 
-**ファイル**: [`src/graph.py:137`](../src/graph.py:137)
+**ファイル**: [`src/graph.py:135`](../src/graph.py:135)
 
-**ルーター**: [`route_merge`](../src/nodes/routers.py:77)
+**ルーター**: [`route_merge`](../src/nodes/routers.py:76)
+
 
 ```mermaid
 flowchart TB
@@ -162,7 +162,7 @@ flowchart TB
 
 ### 3.1 CycleState (主要)
 
-**ファイル**: [`src/state.py:146`](../src/state.py:146)
+**ファイル**: [`src/state.py:143`](../src/state.py:143)
 
 ```
 CycleState
@@ -203,7 +203,7 @@ CycleState
 
 ### 3.2 IntegrationState
 
-**ファイル**: [`src/state.py:446`](../src/state.py:446)
+**ファイル**: [`src/state.py:374`](../src/state.py:374)
 
 ```
 IntegrationState
@@ -216,7 +216,7 @@ IntegrationState
 
 ---
 
-## 4. ファイル構成 (63 files)
+## 4. ファイル構成 (57 files)
 
 ```
 src/
@@ -250,7 +250,7 @@ src/
 │   ├── fixer_nodes.py     # 3 fixer統合
 │   └── routers.py         # 6 router関数
 │
-├── services/              (30 files ★最大)
+├── services/              (32 files, git/統合済み)
 │   ├── __init__.py
 │   ├── artifacts.py
 │   ├── ast_analyzer.py
@@ -264,8 +264,7 @@ src/
 │   ├── contracts.py
 │   ├── environment_validator.py
 │   ├── file_ops.py
-│   ├── git_ops.py
-│   ├── git/               (6 files ★mixin過剰)
+│   ├── git_ops.py              (git/ 6ファイル統合済み)
 │   ├── integration_usecase.py
 │   ├── jules_client.py
 │   ├── jules/             (2 files)
@@ -290,8 +289,8 @@ src/
 ```
 
 ---
+## 5. LLM呼び出し経路 (※ `interfaces.py` / `agent_protocol.py` は削除済み)
 
-## 5. LLM呼び出し経路
 
 ```mermaid
 flowchart LR
@@ -313,7 +312,7 @@ flowchart LR
     LiteLLM -->|acompletion| API["OpenRouter / Gemini"]
 ```
 
-**統一状況**: litellm一本化完了 (pydantic-ai削除)
+**統一状況**: litellm一本化完了 (pydantic-ai削除)。`AgentProtocol` (agent_protocol.py) および `IGraphNodes` / `IWorkflowOrchestrator` (interfaces.py) も削除済み。
 
 ---
 
@@ -330,8 +329,7 @@ flowchart LR
 **単一永続化**: SessionManager削除済み。StateManagerのみ。
 
 ---
-
-## 7. テスト構成 (107 tests)
+## 7. テスト構成 (114 tests, live除く)
 
 ```
 tests/
@@ -343,21 +341,29 @@ tests/
 │
 ├── integration/           (3 tests)
 │   ├── test_coder_graph.py
-│   └── test_tracing_integration.py
+│   ├── test_tracing_integration.py
+│   └── test_git_robustness.py
 │
 ├── e2e/                   (live tests, デフォルトskip)
-│   └── ...
+│   ├── test_coder_graph.py
+│   ├── test_architect_graph.py
+│   ├── test_qa_graph.py
+│   └── test_integration_graph.py  ※ `mock_global_sandbox` 参照が残存 (handover.md 参照)
 ```
 
----
 
+---
 ## 8. 残課題
 
-| # | 課題 | 優先度 | 規模 |
-|---|------|--------|------|
-| 1 | **git/ 6ファイル統合** → git_ops.pyに一本化 | 🟡 中 | 970行 |
-| 2 | **QA系usecase統合** (qa + uat + ux_auditor) | 🟡 中 | 3→1 |
-| 3 | **jules/ 2ファイル統合** → jules_client.pyに | 🟢 低 | 2→0 |
-| 4 | **workflow.py分割** (1041行) | 🔴 高 | 機能別分割 |
-| 5 | **config.py整理** (737行) | 🟡 中 | 設定/Utility分離 |
-| 6 | **Coder Graph committee分岐** の整理 | 🟢 低 | 要分析 |
+| # | 課題 | 優先度 | 規模 | 状態 |
+|---|------|--------|------|------|
+| 1 | ~~**git/ 6ファイル統合** → git_ops.pyに一本化~~ | 🟢 完了 | — | ✅ Session 2 で完了 |
+| 2 | **QA系usecase統合** (qa + uat + ux_auditor) | 🟡 中 | 3→1 | 未着手 |
+| 3 | **jules/ 2ファイル統合** → jules_client.pyに | 🟢 低 | 2→0 | 未着手 |
+| 4 | **workflow.py分割** (1041行) | 🔴 高 | 機能別分割 | 未着手 |
+| 5 | **config.py整理** (737行) | 🟡 中 | 設定/Utility分離 | 未着手 |
+| 6 | **Coder Graph committee分岐** の整理 | 🟢 低 | 要分析 | 未着手 |
+| 7 | **Protocol類削除** (interfaces.py, agent_protocol.py) | 🟢 完了 | — | ✅ Session 2 で完了 |
+| 8 | **Known error: `FlowStatus.AUDIT_FAILED`** 存在しない | 🟡 中 | — | [`base_jules_usecase.py:33`](../src/services/base_jules_usecase.py:33) で参照あり |
+| 9 | **Known error: `test_integration_graph.py`** `mock_global_sandbox` 参照 | 🟢 低 | — | [`tests/e2e/test_integration_graph.py:57`](../tests/e2e/test_integration_graph.py:57) で残存 |
+

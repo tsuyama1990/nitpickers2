@@ -2,20 +2,20 @@
 
 ## セッション概要
 
-**日時**: 2026-06-27 (Session 2)
-**目的**: LangGraph 構造の脆弱性修正、ファイル統合、DI 統一、バグ修正
+**日時**: 2026-06-28 (Session 3)
+**目的**: WorkflowService 分割、ドキュメント整備、デッドコード除去
 
 ---
 
 ## 前回からの変更サマリー
 
-### A. セッション1 (前回) の成果
+### A. セッション1 (前々回) の成果
 
 - **JULES SDK → stdio MCP 化** の実現可能性調査
 - **Phase 0 クリーンアップ**: `AgentProtocol` 定義、`JulesClient` リファクタリング、`MasterIntegratorClient` 分離
 - 詳細: [`plans/jules-mcp-architecture.md`](plans/jules-mcp-architecture.md), [`plans/jules-cleanup-analysis.md`](plans/jules-cleanup-analysis.md)
 
-### B. セッション2 (今回) の成果
+### B. セッション2 (前回) の成果
 
 #### B1. LangGraph 脆弱性修正
 
@@ -45,7 +45,42 @@
 - `JulesClient()` fallback: 全削除 (`workflow.py` 3箇所, `refactor_usecase.py`, `graph_nodes.py`)
 - 型チェーン: `JulesClient` → `AgentProtocol` (Protocol による構造的サブタイピング)
 
-#### B4. 発見・修正した隠れバグ
+### C. セッション3 (今回) の成果
+
+#### C1. WorkflowService 分割 (1041行→50行)
+
+| # | ファイル | 行数 | 責務 |
+|---|---|---|---|
+| W1 | `workflow_orchestrator.py` | 202行 | パイプライン統括 |
+| W2 | `workflow_cycle.py` | 119行 | サイクル実行+Worktree |
+| W3 | `workflow_session.py` | 85行 | セッション管理 |
+| W4 | `workflow_archive.py` | 83行 | アーカイブ |
+| W5 | `workflow_failure.py` | 72行 | 障害診断 |
+| W6 | `workflow_quality.py` | 56行 | 品質ゲート |
+| WF | `workflow.py` (Facade) | 19行 | Mixin継承 + `__init__` |
+
+**方式**: Mixin継承 + Facadeパターン。`from src.services.workflow import WorkflowService` 維持。
+**テスト**: 全111テスト通過。
+
+#### C2. デッドコード除去
+
+| # | 削除内容 | ファイル |
+|---|---|---|
+| D1 | `coder_critic_node` メソッド削除 (未使用、`self_critic_node`/`final_critic_node` と重複) | `graph_nodes.py:92` |
+| D2 | `mock_global_sandbox` 参照削除 (存在しない属性への参照) | `tests/e2e/test_integration_graph.py:57` |
+| D3 | 古いコメント削除 (`global_sandbox_node` 参照) | `tests/integration/test_integration_graph.py:101` |
+
+#### C3. ドキュメント整備
+
+| # | ドキュメント | 更新内容 |
+|---|---|---|
+| Doc1 | `plans/current-architecture.md` | ファイル数・行参照・テスト構成・残課題を最新化 |
+| Doc2 | `plans/depth-complexity-analysis.md` | 発見1/2を ✅ 対応済みに、CycleState行参照修正 |
+| Doc3 | `plans/handover.md` | Session 3 の成果を追記、完了タスクを ✅ に |
+
+---
+
+#### B4. 発見・修正した隠れバグ (Session 2)
 
 | # | 問題 | 影響 | 修正 |
 |---|---|---|---|
@@ -102,66 +137,40 @@ flowchart TB
 
 ---
 
-## テスト状況 (2026-06-27 Session 3 時点)
+## テスト状況 (2026-06-28 Session 3 時点)
 
 ```
 tests/unit/ .......................................... 106/106 PASS
 tests/integration/test_coder_graph.py ............... 1/1 PASS
 tests/integration/test_tracing_integration.py ....... 2/2 PASS
+tests/integration/test_git_robustness.py ............ 1/1 PASS
 tests/e2e/test_coder_graph.py ....................... 2/2 PASS
 tests/e2e/test_architect_graph.py ................... 3/3 PASS
 tests/e2e/test_qa_graph.py ......................... 2/2 PASS
+tests/e2e/test_integration_graph.py ................. 1/1 PASS ✅ 復旧
 -----------------------------------------------------
-合計 (live除く) ................................... 114/114 PASS
+合計 (live除く) ................................... 118/118 PASS
 ```
 
-全4グラフに構造テスト + 実行時テストあり。
+全4グラフに構造テスト + 実行時テストあり。`test_integration_graph.py` の `mock_global_sandbox` 問題を修正し復旧。
 
-### 既知の事前存在エラー (今回の変更と無関係)
+### 既知の事前存在エラー (2026-06-28 確認)
 
-| ファイル | エラー |
-|---|---|
-| `src/utils.py` | `BaseCallbackHandler` has type `Any` |
-| `src/services/base_jules_usecase.py` | `FlowStatus.AUDIT_FAILED` 不存在 |
-| `src/config.py` | `BaseSettings` has type `Any` |
-| `src/services/llm_reviewer.py` | Returning `Any` from function declared to return `bool` |
+| ファイル | エラー | 状態 |
+|---|---|---|
+| `src/utils.py` | `BaseCallbackHandler` has type `Any` | 未修正 |
+| `src/services/base_jules_usecase.py:33` | `FlowStatus.AUDIT_FAILED` 不存在 (enumに定義なし) | ⚠️ 未修正 — `enums.py` に `AUDIT_FAILED` 追加が必要 |
+| `src/config.py` | `BaseSettings` has type `Any` | 未修正 |
+| `src/services/llm_reviewer.py` | Returning `Any` from function declared to return `bool` | 未修正 |
+| ~~`tests/e2e/test_integration_graph.py:57`~~ | ~~`mock_global_sandbox` 参照~~ | ✅ Session 3 で修正 |
 
 ---
 
 ## 次回着手推奨タスク
 
-### P1: `src/services/git/` ディレクトリ統合 (6ファイル→1)
+> **更新 (2026-06-28)**: Session 3 で WorkflowService 分割・デッドコード除去完了。以降の優先順位を再評価。
 
-**問題**: 970行のGit操作コードが6ファイル + mixinパターンで分割されている。
-`GitManager` が5つのmixinクラスを多重継承しているが、すべて `_run_git()` をラップしただけ。
-
-**ファイル**:
-```
-src/services/git/
-├── base.py         (153行) — BaseGitManager
-├── branching.py    (149行) — GitBranchingMixin
-├── checkout.py     (236行) — GitCheckoutMixin
-├── merging.py      (246行) — GitMergingMixin
-├── state.py        (111行) — GitStateMixin
-└── worktree.py     (75行)  — GitWorktreeManager
-```
-
-**方法**: 全mixinの中身を `git_ops.py` にフラットにマージ。mixinクラスを削除し、全メソッドを直接 `GitManager` に配置。
-
-**リスク**: 中。Pythonの実行時には影響しないが、970行のマージを慎重に行う必要がある。テストは既存のものでカバー可能。
-
-### P2: `src/services/workflow.py` 分割 (1041行→複数ファイル)
-
-**問題**: ワークフロー全ロジックが単一ファイルに集中。`WorkflowService` クラスが巨大。
-
-**改善案**: 機能別に分割:
-- `workflow_orchestrator.py` — メインのrun_cycle/run_gen_cycles
-- `workflow_session.py` — セッション管理(start_session/finalize_session)
-- `workflow_setup.py` — 初期化・環境セットアップ
-
-**リスク**: 高。`workflow.py` は全機能のハブ。慎重な分割とテストが必要。
-
-### P3: `src/services/jules_client.py` 整理 (658行)
+### P1: `src/services/jules_client.py` 整理 (658行)
 
 **問題**: 監視ループ、プラン監査、問い合わせ応答が1クラスに混在。
 
@@ -169,17 +178,23 @@ src/services/git/
 - `JulesClient` — API呼び出しのみ
 - 監視ループを分離 (例: `SessionWatcher`)
 
-### P4: QA系3usecase統合 (qa + uat + ux_auditor → 1ファイル)
+### P2: QA系3usecase統合 (qa + uat + ux_auditor → 1ファイル)
 
 **問題**: 3ファイルに分かれているが、すべてQA Graphのノードとして連携。
 
+### P3: `critic_retry_count >= 0` の死コード修正 (`critic_nodes.py:49`)
+
+**問題**: 常にTrueのためcriticループが機能しない。`>= 0` → `>= 1` に修正が必要。
+
 ### 中期的課題 (未着手)
 
-| 課題 | 優先度 | 備考 |
-|---|---|---|
-| `MemorySaver` → 永続チェックポインタ (`SqliteSaver`) | 🟠 中 | プロセス再起動で LangGraph 状態消失 |
-| ノードメソッド内の `MasterIntegratorClient()` 直接生成 | 🟡 低 | `master_integrator_node` のみ残存 |
-| `e2e/test_integration_graph.py` の `mock_global_sandbox` 参照 | 🟢 低 | 削除されたsandbox_nodeを参照。テスト修正が必要 |
+| 課題 | 優先度 | 備考 | 状態 |
+|---|---|---|---|
+| `MemorySaver` → 永続チェックポインタ (`SqliteSaver`) | 🟠 中 | プロセス再起動で LangGraph 状態消失 | 未着手 |
+| ノードメソッド内の `MasterIntegratorClient()` 直接生成 | 🟡 低 | `master_integrator_node` のみ残存 | 未着手 |
+| `critic_retry_count >= 0` の死コード (`critic_nodes.py:49`) | 🟡 中 | Flow-complexity分析で指摘 | ⚠️ 未修正 |
+| `FlowStatus.AUDIT_FAILED` 未定義 (`base_jules_usecase.py:33`) | 🟡 中 | enumに定義追加が必要 | ⚠️ 未修正 |
+
 
 ---
 
@@ -189,4 +204,6 @@ src/services/git/
 |---|---|
 | [`plans/jules-mcp-architecture.md`](plans/jules-mcp-architecture.md) | MCP 化の全体設計・ツール定義・移行計画 |
 | [`plans/jules-cleanup-analysis.md`](plans/jules-cleanup-analysis.md) | JulesClient の問題洗い出しとクリーンアップ詳細 |
+| [`plans/workflow-split-plan.md`](plans/workflow-split-plan.md) | WorkflowService 分割の設計書 |
+| [`plans/current-architecture.md`](plans/current-architecture.md) | 最新アーキテクチャ概要 |
 | [`plans/handover.md`](plans/handover.md) | **このファイル** — 引き継ぎ資料 |

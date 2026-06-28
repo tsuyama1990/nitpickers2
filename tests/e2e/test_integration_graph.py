@@ -49,12 +49,8 @@ async def test_integration_graph_conflict_resolution(repo_path: Path) -> None:
         ]
     }
 
-    mock_global_sandbox = AsyncMock()
-    mock_global_sandbox.return_value = {"status": "pass"}
-
     builder.nodes.git_merge_node = mock_git_merge
     builder.nodes.master_integrator_node = mock_master_integrator
-    builder.nodes.global_sandbox_node = mock_global_sandbox
 
     graph = builder.build_integration_graph()
 
@@ -65,6 +61,5 @@ async def test_integration_graph_conflict_resolution(repo_path: Path) -> None:
 
     assert mock_git_merge.call_count == 2
     assert mock_master_integrator.call_count == 1
-    assert mock_global_sandbox.call_count == 1
 
     assert final_state["unresolved_conflicts"][0].resolved is True

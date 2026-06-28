@@ -16,6 +16,7 @@ from src.graph import GraphBuilder
 #  Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def mock_nodes() -> MagicMock:
     """Returns a MagicMock that satisfies the Any protocol.
@@ -38,7 +39,6 @@ def mock_nodes() -> MagicMock:
     m.final_critic_node = MagicMock(return_value={})
     m.refactor_node = MagicMock(return_value={})
     m.global_refactor_node = MagicMock(return_value={})
-    m.coder_critic_node = MagicMock(return_value={})
 
     # ── QA nodes ──
     m.qa_session_node = MagicMock(return_value={})
@@ -73,6 +73,7 @@ def builder(mock_nodes: MagicMock) -> GraphBuilder:
 #  Helper: extract edges from a raw StateGraph
 # ---------------------------------------------------------------------------
 
+
 def _edges(graph: Any) -> set[tuple[str, str]]:
     """Return {(source, target)} for all unconditional edges."""
     return set(graph.edges)
@@ -96,6 +97,7 @@ def _branches(graph: Any) -> dict[str, dict[str, str]]:
 #  Architect Graph
 # ---------------------------------------------------------------------------
 
+
 class TestArchitectGraph:
     def test_graph_has_required_nodes(self, builder: GraphBuilder) -> None:
         graph = builder._create_architect_graph()
@@ -106,9 +108,7 @@ class TestArchitectGraph:
     def test_start_connection(self, builder: GraphBuilder) -> None:
         graph = builder._create_architect_graph()
         e = _edges(graph)
-        assert ("__start__", "architect_session") in e, (
-            "START must connect to architect_session"
-        )
+        assert ("__start__", "architect_session") in e, "START must connect to architect_session"
 
     def test_end_connections(self, builder: GraphBuilder) -> None:
         """Both architect_session and architect_critic can route to END."""
@@ -124,9 +124,7 @@ class TestArchitectGraph:
 
         # architect_critic can go to END via "end" condition
         architect_critic_branches = branches.get("architect_critic", {})
-        assert "end" in architect_critic_branches, (
-            "architect_critic must have 'end' branch to END"
-        )
+        assert "end" in architect_critic_branches, "architect_critic must have 'end' branch to END"
         assert architect_critic_branches["end"] == "__end__"
 
     def test_session_to_critic_edge(self, builder: GraphBuilder) -> None:
@@ -154,21 +152,18 @@ class TestArchitectGraph:
         # route_architect_session returns "architect_critic" or "end"
         session_branches = branches["architect_session"]
         for key in ("architect_critic", "end"):
-            assert key in session_branches, (
-                f"architect_session branching table missing key '{key}'"
-            )
+            assert key in session_branches, f"architect_session branching table missing key '{key}'"
 
         # route_architect_critic returns "architect_session" or "end"
         critic_branches = branches["architect_critic"]
         for key in ("architect_session", "end"):
-            assert key in critic_branches, (
-                f"architect_critic branching table missing key '{key}'"
-            )
+            assert key in critic_branches, f"architect_critic branching table missing key '{key}'"
 
 
 # ---------------------------------------------------------------------------
 #  Coder Graph
 # ---------------------------------------------------------------------------
+
 
 class TestCoderGraph:
     def test_graph_has_required_nodes(self, builder: GraphBuilder) -> None:
@@ -201,9 +196,7 @@ class TestCoderGraph:
         # impl_coder_node can route to END via FAILED/COMPLETED
         coder_branches = branches.get("impl_coder_node", {})
         for status in (FlowStatus.FAILED.value, FlowStatus.COMPLETED.value):
-            assert status in coder_branches, (
-                f"impl_coder_node branching table missing '{status}'"
-            )
+            assert status in coder_branches, f"impl_coder_node branching table missing '{status}'"
             assert coder_branches[status] == "__end__"
 
     def test_static_edges(self, builder: GraphBuilder) -> None:
@@ -219,10 +212,13 @@ class TestCoderGraph:
         branches = _branches(graph)
 
         coder_branches = branches.get("impl_coder_node", {})
-        for key in ("self_critic_node", FlowStatus.FAILED.value, FlowStatus.COMPLETED.value, "impl_coder_node"):
-            assert key in coder_branches, (
-                f"impl_coder_node branching table missing key '{key}'"
-            )
+        for key in (
+            "self_critic_node",
+            FlowStatus.FAILED.value,
+            FlowStatus.COMPLETED.value,
+            "impl_coder_node",
+        ):
+            assert key in coder_branches, f"impl_coder_node branching table missing key '{key}'"
 
     def test_committee_conditional_edges(self, builder: GraphBuilder) -> None:
         graph = builder._create_coder_graph()
@@ -238,7 +234,12 @@ class TestCoderGraph:
         """check_coder_outcome can return: self_critic_node, FAILED, COMPLETED, impl_coder_node."""
         graph = builder._create_coder_graph()
         branches = _branches(graph).get("impl_coder_node", {})
-        for key in ("self_critic_node", FlowStatus.FAILED.value, FlowStatus.COMPLETED.value, "impl_coder_node"):
+        for key in (
+            "self_critic_node",
+            FlowStatus.FAILED.value,
+            FlowStatus.COMPLETED.value,
+            "impl_coder_node",
+        ):
             assert key in branches, (
                 f"impl_coder_node branching table missing key '{key}' "
                 f"(expected by check_coder_outcome)"
@@ -258,6 +259,7 @@ class TestCoderGraph:
 # ---------------------------------------------------------------------------
 #  QA Graph
 # ---------------------------------------------------------------------------
+
 
 class TestQAGraph:
     def test_graph_has_all_nodes(self, builder: GraphBuilder) -> None:
@@ -285,9 +287,7 @@ class TestQAGraph:
         branches = _branches(graph)
         uat_branches = branches.get("uat_evaluate", {})
         for key in ("qa_auditor", "ux_auditor", "end"):
-            assert key in uat_branches, (
-                f"uat_evaluate branching table missing key '{key}'"
-            )
+            assert key in uat_branches, f"uat_evaluate branching table missing key '{key}'"
         assert uat_branches["end"] == "__end__"
 
     def test_route_qa_routing_keys_match(self, builder: GraphBuilder) -> None:
@@ -296,14 +296,14 @@ class TestQAGraph:
         branches = _branches(graph).get("uat_evaluate", {})
         for key in ("qa_auditor", "ux_auditor", "end"):
             assert key in branches, (
-                f"uat_evaluate branching table missing key '{key}' "
-                f"(expected by route_qa)"
+                f"uat_evaluate branching table missing key '{key}' (expected by route_qa)"
             )
 
 
 # ---------------------------------------------------------------------------
 #  Integration Graph
 # ---------------------------------------------------------------------------
+
 
 class TestIntegrationGraph:
     def test_graph_has_all_nodes(self, builder: GraphBuilder) -> None:
@@ -333,9 +333,7 @@ class TestIntegrationGraph:
         branches = _branches(graph)
         merge_branches = branches.get("git_merge_node", {})
         for key in ("conflict", "success"):
-            assert key in merge_branches, (
-                f"git_merge_node branching table missing key '{key}'"
-            )
+            assert key in merge_branches, f"git_merge_node branching table missing key '{key}'"
         assert merge_branches["conflict"] == "master_integrator_node"
         assert merge_branches["success"] == "integration_fixer_node"
 
@@ -345,14 +343,14 @@ class TestIntegrationGraph:
         branches = _branches(graph).get("git_merge_node", {})
         for key in ("conflict", "success"):
             assert key in branches, (
-                f"git_merge_node branching table missing key '{key}' "
-                f"(expected by route_merge)"
+                f"git_merge_node branching table missing key '{key}' (expected by route_merge)"
             )
 
 
 # ---------------------------------------------------------------------------
 #  Cross-graph: Any protocol conformance
 # ---------------------------------------------------------------------------
+
 
 class TestGraphNodesProtocol:
     """Verify that all node names used in graphs correspond to names
@@ -361,13 +359,19 @@ class TestGraphNodesProtocol:
     def _get_graph_node_names(self, builder: GraphBuilder) -> set[str]:
         """Collect all node names from all 4 graphs."""
         names: set[str] = set()
-        for graph_name in ("_create_architect_graph", "_create_coder_graph",
-                           "_create_qa_graph", "_create_integration_graph"):
+        for graph_name in (
+            "_create_architect_graph",
+            "_create_coder_graph",
+            "_create_qa_graph",
+            "_create_integration_graph",
+        ):
             g = getattr(builder, graph_name)()
             names.update(g.nodes.keys())
         return names
 
-    def test_no_undefined_nodes_in_graphs(self, builder: GraphBuilder, mock_nodes: MagicMock) -> None:
+    def test_no_undefined_nodes_in_graphs(
+        self, builder: GraphBuilder, mock_nodes: MagicMock
+    ) -> None:
         """Every node in every graph must have a corresponding method on mock_nodes."""
         graph_node_names = self._get_graph_node_names(builder)
 

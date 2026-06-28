@@ -150,10 +150,34 @@ nitpickers/
 ├── src/
 │   ├── cli.py            # Typer command line entries
 │   ├── graph.py          # Phase definitions for Coder, Integration, and QA graphs
+│   ├── graph_nodes.py    # CycleNodes — consolidated node wiring
 │   ├── state.py          # Typed definitions for CycleState & IntegrationState
-│   ├── services/         # Core application services (e.g. Workflow, Conflict Manager)
-│   └── nodes/            # Isolated LangGraph components
-├── tests/                # Unit and Integration test modules
+│   ├── config.py         # Settings & environment configuration
+│   ├── enums.py          # FlowStatus & WorkPhase enums
+│   ├── services/
+│   │   ├── workflow.py                  # Facade (split into 6 modules below)
+│   │   ├── workflow_orchestrator.py     # Pipeline orchestration
+│   │   ├── workflow_cycle.py            # Cycle execution + Worktree
+│   │   ├── workflow_session.py          # Session start/finalize/PR
+│   │   ├── workflow_archive.py          # Artifact archiving
+│   │   ├── workflow_failure.py          # Failure snapshots
+│   │   ├── workflow_quality.py          # Quality gates
+│   │   ├── git_ops.py                   # Git operations (6 files consolidated)
+│   │   ├── jules_client.py              # Jules SDK client
+│   │   ├── coder_usecase.py             # Implementation use case
+│   │   ├── committee_usecase.py         # Auditor committee routing
+│   │   └── ...                          # Additional services
+│   ├── nodes/            # LangGraph node implementations
+│   │   ├── architect.py
+│   │   ├── coder.py
+│   │   ├── critic_nodes.py
+│   │   ├── fixer_nodes.py
+│   │   └── routers.py
+│   └── templates/        # LLM prompt templates (29 files)
+├── tests/
+│   ├── unit/             # 106 tests
+│   ├── integration/      # 6 tests
+│   └── e2e/              # 7 graph tests + live tests
 └── tutorials/            # Marimo UAT scenarios
 ```
 

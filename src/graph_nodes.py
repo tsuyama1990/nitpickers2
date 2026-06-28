@@ -89,9 +89,6 @@ class CycleNodes:
     async def final_critic_node(self, state: CycleState) -> dict[str, Any]:
         return await self._coder_critic.coder_critic_node(state)
 
-    async def coder_critic_node(self, state: CycleState) -> dict[str, Any]:
-        return await self._coder_critic.coder_critic_node(state)
-
     # ── Auditor & Committee (inlined from tiny wrappers) ──────
 
     async def auditor_node(self, state: CycleState) -> dict[str, Any]:
